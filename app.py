@@ -6,9 +6,10 @@ from datetime import datetime, timedelta
 import yfinance as yf
 import time
 import hashlib
+import plotly.graph_objects as go # 🕯️ A ŞIKKI İÇİN GRAFİK KÜTÜPHANESİ
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="Yatırımcı Pro V9.7", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Yatırımcı Pro V10.0", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. TASARIM ---
 st.markdown(
@@ -39,15 +40,23 @@ def get_sheets():
             st.stop()
         creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], ['https://www.googleapis.com/auth/spreadsheets'])
         client = gspread.authorize(creds)
+        
         # 👇 LİNKİ BURAYA YAPIŞTIR 👇
         sheet_url = "https://docs.google.com/spreadsheets/d/1ijPoTKNsXZBMxdRdMa7cpEhbSYt9kMwoqf5nZFNi7S8/edit?gid=0#gid=0"
+        
         spreadsheet = client.open_by_url(sheet_url)
-        return spreadsheet.worksheet("Islemler"), spreadsheet.worksheet("Uyeler")
+        # ARTIK 3 SAYFA ÇEKİYORUZ (NOTLAR EKLENDİ)
+        return spreadsheet.worksheet("Islemler"), spreadsheet.worksheet("Uyeler"), spreadsheet.worksheet("Notlar")
     except Exception as e:
         st.error(f"Veri tabanı hatası: {e}")
         st.stop()
 
-ws_islemler, ws_uyeler = get_sheets()
+# 3 Sayfayı Yükle
+try:
+    ws_islemler, ws_uyeler, ws_notlar = get_sheets()
+except:
+    st.error("Lütfen Google Sheet dosyanıza 'Notlar' adında yeni bir sayfa açtığınızdan emin olun.")
+    st.stop()
 
 # --- 5. YARDIMCI FONKSİYONLAR ---
 def zorla_sayi_yap(deger):
@@ -106,20 +115,22 @@ def portfoy_hesapla(df):
 def hisse_performans_analizi(sembol):
     ticker = yf.Ticker(sembol)
     hist = ticker.history(period="5y")
-    if hist.empty: return None
+    if hist.empty: return None, None, None # Veri, Ticker Objesi, Haberler için
     suan = hist['Close'].iloc[-1]
     def degisim(gun): return ((suan - hist['Close'].iloc[-gun-1]) / hist['Close'].iloc[-gun-1] * 100) if len(hist) > gun else 0.0
-    return {"Fiyat": suan, "1 Gün": degisim(1), "1 Hafta": degisim(5), "3 Ay": degisim(63), "1 Yıl": degisim(252), "5 Yıl": degisim(1260)}
+    
+    # Haberleri Çek (B ŞIKKI)
+    haberler = ticker.news
+    
+    data = {"Fiyat": suan, "1 Gün": degisim(1), "1 Hafta": degisim(5), "3 Ay": degisim(63), "1 Yıl": degisim(252), "5 Yıl": degisim(1260)}
+    return data, hist, haberler
 
-# --- 6. GİRİŞ VE OTURUM YÖNETİMİ (BURASI DEĞİŞTİ) ---
-
-# 1. URL KONTROLÜ (F5 ATINCA BURADAN YAKALAR)
+# --- 6. GİRİŞ SİSTEMİ ---
 query_params = st.query_params
 url_kullanici = query_params.get("kullanici", None)
 url_giris = query_params.get("giris", None)
 
 if 'giris_yapildi' not in st.session_state:
-    # Eğer URL'de bilgi varsa otomatik giriş yap
     if url_kullanici and url_giris == "ok":
         st.session_state.giris_yapildi = True
         st.session_state.kullanici_adi = url_kullanici
@@ -130,7 +141,7 @@ if 'giris_yapildi' not in st.session_state:
 if 'secilen_hisse_detay' not in st.session_state: st.session_state.secilen_hisse_detay = None
 
 def giris_sayfasi():
-    st.markdown("<h1 style='text-align: center;'>🔐 Yatırımcı Pro Giriş</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center;'>🔐 Yatırımcı Pro V10</h1>", unsafe_allow_html=True)
     t1, t2 = st.tabs(["Giriş", "Kayıt"])
     with t1:
         c1, c2, c3 = st.columns([1,2,1])
@@ -143,7 +154,6 @@ def giris_sayfasi():
                     if sifre_kontrol(p, udf[udf['Kullanıcı Adı']==u]['Şifre'].values[0]):
                         st.session_state.giris_yapildi = True
                         st.session_state.kullanici_adi = u
-                        # 🔥 URL'YE KAYDET (F5 İÇİN)
                         st.query_params["kullanici"] = u
                         st.query_params["giris"] = "ok"
                         st.rerun()
@@ -185,22 +195,46 @@ with st.sidebar:
     if st.button("🔒 Çıkış"): 
         st.session_state.giris_yapildi = False
         st.session_state.secilen_hisse_detay = None
-        # 🔥 URL'Yİ TEMİZLE (ÇIKIŞ İÇİN)
         st.query_params.clear()
         st.rerun()
 
-# --- HİSSE DETAY SAYFASI ---
+# =========================================================
+# 🔥 V10 FİNAL DETAY SAYFASI 🔥
+# =========================================================
 def hisse_detay_goster(sembol):
     if st.button("⬅️ Listeye Geri Dön", use_container_width=True):
         st.session_state.secilen_hisse_detay = None
         st.rerun()
-    with st.spinner(f"{sembol} analiz ediliyor..."):
+    
+    with st.spinner(f"{sembol} verileri, haberleri ve grafikleri yükleniyor..."):
         fiyat, isim, tam_kod, degisim = veri_getir_ozel(sembol)
-        analiz = hisse_performans_analizi(tam_kod)
+        analiz, hist_data, haberler = hisse_performans_analizi(tam_kod)
+        
     if analiz:
+        # BAŞLIK
         st.header(f"📈 {isim} ({tam_kod})")
         st.metric("Anlık Fiyat", f"{analiz['Fiyat']:.2f} ₺", delta=f"%{degisim:.2f}")
+        
+        # 🕯️ A ŞIKKI: İNTERAKTİF MUM GRAFİĞİ (CANDLESTICK) 🕯️
         st.divider()
+        st.subheader("🕯️ Teknik Grafik (6 Aylık)")
+        
+        if hist_data is not None and not hist_data.empty:
+            # Son 6 ayı alalım
+            hist_6mo = hist_data.tail(126) 
+            fig = go.Figure(data=[go.Candlestick(x=hist_6mo.index,
+                            open=hist_6mo['Open'],
+                            high=hist_6mo['High'],
+                            low=hist_6mo['Low'],
+                            close=hist_6mo['Close'],
+                            name=tam_kod)])
+            
+            fig.update_layout(xaxis_rangeslider_visible=False, height=400, margin=dict(l=20, r=20, t=20, b=20))
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("Grafik verisi yüklenemedi.")
+
+        # PERFORMANS KUTULARI
         st.subheader("📊 Performans Karnesi")
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("1 Gün", f"%{analiz['1 Gün']:.2f}", delta=f"{analiz['1 Gün']:.2f}")
@@ -208,44 +242,85 @@ def hisse_detay_goster(sembol):
         c3.metric("3 Ay", f"%{analiz['3 Ay']:.2f}", delta=f"{analiz['3 Ay']:.2f}")
         c4.metric("1 Yıl", f"%{analiz['1 Yıl']:.2f}", delta=f"{analiz['1 Yıl']:.2f}")
         c5.metric("5 Yıl", f"%{analiz['5 Yıl']:.2f}", delta=f"{analiz['5 Yıl']:.2f}")
+        
         st.divider()
-        st.subheader("🤖 Yapay Zeka Yorumu")
-        yorum = ""
-        if analiz['1 Yıl'] > 100: yorum += "🚀 **Uzun Vade:** Müthiş ralli (%100+). "
-        elif analiz['1 Yıl'] < -20: yorum += "🔻 **Uzun Vade:** Değer kaybı yüksek. "
-        if analiz['1 Gün'] < -3 and analiz['1 Hafta'] > 5: yorum += "📉 **Kısa Vade:** Kâr satışı baskısı. "
-        elif analiz['1 Gün'] > 3: yorum += "🔥 **Kısa Vade:** Alıcılar istekli. "
-        st.info(f"🤖 **Yapay Zeka Yorumu:** {yorum}" if yorum else "🤖 **Yapay Zeka Yorumu:** Hisse standart seyrediyor.")
+        
+        # 🟢 HIZLI AL/SAT 🔴
+        col_islem, col_hedef = st.columns([1, 1])
+        
+        with col_islem:
+            st.subheader("⚡ Hızlı İşlem")
+            t_al, t_sat = st.tabs(["🟢 AL", "🔴 SAT"])
+            with t_al:
+                al_lot = st.number_input("Lot", min_value=1, key="detay_al_lot")
+                if st.button("Portföye Ekle", key="detay_btn_al", type="primary", use_container_width=True):
+                    try:
+                        tarih = datetime.now().strftime("%Y-%m-%d")
+                        f_str = str(analiz['Fiyat']).replace(',', '.')
+                        ws_islemler.append_row([st.session_state.kullanici_adi, tarih, tam_kod, "Alış", al_lot, f_str, "FALSE"])
+                        st.success("Alındı!")
+                        time.sleep(1)
+                        st.rerun()
+                    except: st.error("Hata")
+            with t_sat:
+                sat_lot = st.number_input("Lot", min_value=1, key="detay_sat_lot")
+                if st.button("Portföyden Düş", key="detay_btn_sat", type="secondary", use_container_width=True):
+                    try:
+                        tarih = datetime.now().strftime("%Y-%m-%d")
+                        f_str = str(analiz['Fiyat']).replace(',', '.')
+                        ws_islemler.append_row([st.session_state.kullanici_adi, tarih, tam_kod, "Satış", sat_lot, f_str, "FALSE"])
+                        st.success("Satıldı!")
+                        time.sleep(1)
+                        st.rerun()
+                    except: st.error("Hata")
+
+        # 🎯 C ŞIKKI: HEDEF FİYAT & NOTLAR 📒
+        with col_hedef:
+            st.subheader("🎯 Hedef & Notlar")
+            
+            # Mevcut notu bulmaya çalış (Basit yöntem: Tümünü çekip sonuncuyu al)
+            # Not: Büyük veride yavaşlayabilir ama bireysel kullanım için uygundur.
+            not_df = pd.DataFrame(ws_notlar.get_all_records())
+            mevcut_hedef = 0.0
+            mevcut_not = ""
+            
+            if not not_df.empty:
+                # Kullanıcı ve Hisse Filtresi
+                filtre = not_df[(not_df['Kullanıcı'] == st.session_state.kullanici_adi) & (not_df['Hisse'] == tam_kod)]
+                if not filtre.empty:
+                    mevcut_hedef = float(filtre.iloc[-1]['Hedef'])
+                    mevcut_not = filtre.iloc[-1]['Not']
+
+            yeni_hedef = st.number_input("Hedef Fiyatım", value=mevcut_hedef, step=0.1)
+            yeni_not = st.text_area("Bu hisseyle ilgili notum:", value=mevcut_not)
+            
+            if st.button("💾 Notu Kaydet", use_container_width=True):
+                try:
+                    # Yeni satır ekle (Eskisini silmek yerine tarihçe tutuyoruz)
+                    ws_notlar.append_row([st.session_state.kullanici_adi, tam_kod, yeni_hedef, yeni_not])
+                    st.success("Kaydedildi!")
+                except Exception as e: st.error(f"Hata: {e}")
+
+        # 📰 B ŞIKKI: HABER AKIŞI 📰
         st.divider()
-        col_al, col_sat = st.columns(2)
-        with col_al:
-            al_lot = st.number_input("Alınacak Lot", min_value=1, key="detay_al_lot")
-            if st.button("AL (Ekle)", key="detay_btn_al", type="primary"):
-                try:
-                    tarih = datetime.now().strftime("%Y-%m-%d")
-                    fiyat_str = str(analiz['Fiyat']).replace(',', '.')
-                    ws_islemler.append_row([st.session_state.kullanici_adi, tarih, tam_kod, "Alış", al_lot, fiyat_str, "FALSE"])
-                    st.success("Alındı!")
-                    time.sleep(1)
-                    st.rerun()
-                except Exception as e: st.error(f"Hata: {e}")
-        with col_sat:
-            sat_lot = st.number_input("Satılacak Lot", min_value=1, key="detay_sat_lot")
-            if st.button("SAT (Düş)", key="detay_btn_sat", type="secondary"):
-                try:
-                    tarih = datetime.now().strftime("%Y-%m-%d")
-                    fiyat_str = str(analiz['Fiyat']).replace(',', '.')
-                    ws_islemler.append_row([st.session_state.kullanici_adi, tarih, tam_kod, "Satış", sat_lot, fiyat_str, "FALSE"])
-                    st.success("Satıldı!")
-                    time.sleep(1)
-                    st.rerun()
-                except Exception as e: st.error(f"Hata: {e}")
+        st.subheader(f"📰 {isim} Hakkında Son Haberler")
+        if haberler:
+            for h in haberler[:3]: # Son 3 haber
+                t_baslik = h.get('title', 'Başlık Yok')
+                t_link = h.get('link', '#')
+                t_yayin = h.get('publisher', 'Bilinmiyor')
+                st.markdown(f"**🔗 [{t_baslik}]({t_link})**")
+                st.caption(f"Kaynak: {t_yayin}")
+        else:
+            st.info("Bu hisse için güncel haber bulunamadı.")
+
     else: st.error("Veri yok.")
 
 # --- SAYFALAR ---
 if st.session_state.secilen_hisse_detay:
     hisse_detay_goster(st.session_state.secilen_hisse_detay)
 else:
+    # 1. CANLI PORTFÖY
     if secim == "📊 Canlı Portföy":
         st.header("📊 Canlı Portföy")
         if not df.empty:
@@ -273,37 +348,9 @@ else:
                 c1, c2 = st.columns(2)
                 c1.metric("Portföy Değeri", f"{eldekilerin_degeri:,.2f} ₺")
                 c2.metric("GENEL NET DURUM", f"{genel_net:,.2f} ₺", delta=f"{genel_net:,.2f}")
+                
                 st.divider()
-                with st.expander("⚡ Hızlı Al/Sat Paneli", expanded=True):
-                    secilen_hisse = st.selectbox("Hisse", aktifler, key="hzl_select")
-                    hzl_fiyat, _, hzl_kod, _ = veri_getir_ozel(secilen_hisse)
-                    if not hzl_fiyat: hzl_fiyat = 0.0
-                    col_hzl1, col_hzl2 = st.columns(2)
-                    hzl_lot = st.number_input("Lot", min_value=1, key="hzl_lot")
-                    hzl_islem_fiyati = st.number_input("Fiyat", value=float(hzl_fiyat), format="%.2f", key="hzl_fiyat_inp")
-                    col_b1, col_b2 = st.columns(2)
-                    with col_b1:
-                        if st.button("🟢 AL", key="hzl_btn_al", type="primary", use_container_width=True):
-                            try:
-                                tarih = datetime.now().strftime("%Y-%m-%d")
-                                f_str = str(hzl_islem_fiyati).replace(',', '.')
-                                ws_islemler.append_row([st.session_state.kullanici_adi, tarih, hzl_kod, "Alış", hzl_lot, f_str, "FALSE"])
-                                st.success("Eklendi!")
-                                time.sleep(1)
-                                st.rerun()
-                            except Exception as e: st.error(f"Hata: {e}")
-                    with col_b2:
-                        if st.button("🔴 SAT", key="hzl_btn_sat", type="secondary", use_container_width=True):
-                            try:
-                                tarih = datetime.now().strftime("%Y-%m-%d")
-                                f_str = str(hzl_islem_fiyati).replace(',', '.')
-                                ws_islemler.append_row([st.session_state.kullanici_adi, tarih, hzl_kod, "Satış", hzl_lot, f_str, "FALSE"])
-                                st.success("Satıldı!")
-                                time.sleep(1)
-                                st.rerun()
-                            except Exception as e: st.error(f"Hata: {e}")
-                st.divider()
-                with st.expander("🚨 Hesabımı Sıfırla (Geri Dönüş Yok)"):
+                with st.expander("🚨 Hesabımı Sıfırla"):
                     if st.button("⚠️ TÜM VERİLERİMİ SİL"): st.session_state.sifirlama_onay = True
                 if st.session_state.get('sifirlama_onay'):
                     if st.button("✅ EVET, SİL", type="primary"):
@@ -355,35 +402,20 @@ else:
     elif secim == "🧠 Portföy Analizi":
         st.header("🧠 Analiz")
         if not df.empty:
-            anlik, _ = portfoy_hesapla(df.copy())
-            ozet = []
-            toplam_deger = 0
-            halka_arz_sayisi = 0
-            if 'Halka Arz' in df.columns: halka_arz_sayisi = len(df[df['Halka Arz'].astype(str).str.upper() == 'TRUE'])
-            for k, v in anlik.items():
-                if v['Adet'] > 0:
-                    f, _, _, _ = veri_getir_ozel(k)
-                    guncel = f if f else v['Ort_Maliyet']
-                    tutar = v['Adet'] * guncel
-                    toplam_deger += tutar
-                    ozet.append({"Hisse": k, "Değer": tutar})
-            st.divider()
-            c1, c2 = st.columns(2)
-            with c1:
-                st.subheader("Dağılım")
-                if ozet: st.bar_chart(pd.DataFrame(ozet), x="Hisse", y="Değer")
-                else: st.warning("Veri yok")
-            with c2:
-                st.subheader("Rapor")
-                uyarilar = []
-                if ozet:
-                    en_buyuk = max(ozet, key=lambda x:x['Değer'])
-                    oran = (en_buyuk['Değer'] / toplam_deger) * 100
-                    if oran > 50: uyarilar.append(f"⚠️ Yüksek Risk: Portföyün %{int(oran)}'i {en_buyuk['Hisse']}.")
-                if len(df) > 0 and (halka_arz_sayisi / len(df)) * 100 > 60: uyarilar.append("⚠️ Halka Arz bağımlılığı yüksek.")
-                if not uyarilar: st.info("Risk dengeli.")
-                else:
-                    for u in uyarilar: st.write(u)
+            if st.button("Analizi Başlat", type="primary"):
+                with st.spinner("Analiz ediliyor..."):
+                    anlik, _ = portfoy_hesapla(df.copy())
+                    ozet = []
+                    toplam = 0
+                    for k, v in anlik.items():
+                        if v['Adet'] > 0:
+                            f, _, _, _ = veri_getir_ozel(k)
+                            guncel = f if f else v['Ort_Maliyet']
+                            val = v['Adet'] * guncel
+                            toplam += val
+                            ozet.append({"Hisse": k, "Değer": val})
+                    st.bar_chart(pd.DataFrame(ozet), x="Hisse", y="Değer")
+                    st.info("Dağılım yukarıdaki gibidir. Riski dağıtmak için tek hisseye %50'den fazla bağlama.")
         else: st.warning("Veri yok.")
 
     elif secim == "➕ İşlem Ekle":
