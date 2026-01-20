@@ -7,7 +7,7 @@ import yfinance as yf
 import time
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="Yatırımcı Pro V5.2", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Yatırımcı Pro V5.3", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. TASARIM ---
 st.markdown(
@@ -45,33 +45,33 @@ def get_data():
 
 # --- 4. YARDIMCI FONKSİYONLAR ---
 
-# NÜKLEER TEMİZLİK ROBOTU
-# Bu fonksiyon ne gelirse gelsin (1.000,50 veya 1,000.50 veya 1000) düzgün sayıya çevirir.
-def sayi_duzelt_nukleer(deger):
-    if deger is None or deger == "":
+# BU FONKSİYON SAYILARI ZORLA DÜZELTİR
+def zorla_sayi_yap(deger):
+    # Eğer boşsa 0 döndür
+    if deger is None or str(deger).strip() == "":
         return 0.0
     
-    # Önce string'e çevir
+    # Zaten sayıysa (int/float) elleme, döndür
+    if isinstance(deger, (int, float)):
+        return float(deger)
+    
+    # Metinse temizliğe başla
     metin = str(deger).strip()
     
-    # Eğer zaten düz sayıysa (Örn: 100)
-    if metin.isnumeric():
-        return float(metin)
+    # TL, $, boşluk gibi şeyleri sil
+    metin = metin.replace("TL", "").replace("$", "").replace(" ", "")
     
-    # 1. Adım: TL, $ gibi sembolleri at
-    metin = metin.replace("TL", "").replace("$", "").replace("€", "").strip()
-    
-    # 2. Adım: Virgül mü nokta mı kavgası
-    # Türkiye formatı varsayıyoruz (1.000,50)
+    # ÖNEMLİ: Türkiye formatı (1.000,50) mı yoksa ABD formatı (1,000.50) mı?
+    # Eğer virgül varsa ve sonda ise (ondalık), noktaları sil, virgülü nokta yap.
     if "," in metin:
-        # Binlik ayracı olan noktaları sil (1.000 -> 1000)
-        metin = metin.replace(".", "")
-        # Ondalık virgülü noktaya çevir (10,50 -> 10.50)
-        metin = metin.replace(",", ".")
+        metin = metin.replace(".", "") # Binlik noktasını sil (1.000 -> 1000)
+        metin = metin.replace(",", ".") # Virgülü nokta yap (10,5 -> 10.5)
     else:
-        # Virgül yoksa, muhtemelen düz format (1000.50) veya binlik noktalı (1.000)
-        # Eğer birden fazla nokta varsa veya sonda değilse binliktir, sil.
-        pass 
+        # Virgül yoksa sadece noktaları temizle (bazen binlik nokta olur: 1.000)
+        # Ama dikkat: 10.50 de olabilir. 
+        # Basit kural: Eğer 1 tane nokta varsa elleme. Birden fazla nokta varsa sil.
+        if metin.count(".") > 1:
+            metin = metin.replace(".", "")
 
     try:
         return float(metin)
@@ -81,24 +81,46 @@ def sayi_duzelt_nukleer(deger):
 @st.cache_data(ttl=60)
 def veri_getir_ozel(hisse_kodu):
     sembol = str(hisse_kodu).strip().upper()
-    if "-" in sembol: pass
-    elif not sembol.endswith(".IS"):
+    
+    # Kripto veya özel
+    if "-" in sembol:
+        try:
+            tik = yf.Ticker(sembol)
+            h = tik.history(period="1d")
+            if not h.empty: return h['Close'].iloc[-1], tik.info.get('longName', sembol)
+        except: pass
+
+    # TR (Bist) Öncelikli
+    if not sembol.endswith(".IS"):
         try:
             tik = yf.Ticker(f"{sembol}.IS")
             h = tik.history(period="1d")
             if not h.empty: return h['Close'].iloc[-1], tik.info.get('longName', sembol)
         except: pass
     
+    # Global
     try:
         tik = yf.Ticker(sembol)
         h = tik.history(period="1d")
         if not h.empty: return h['Close'].iloc[-1], tik.info.get('longName', sembol)
     except: pass
+    
     return None, sembol
 
-# --- 5. VERİ YÜKLEME ---
+# --- 5. VERİ YÜKLEME VE ZORBA TEMİZLİK ---
 sheet, data = get_data()
 df = pd.DataFrame(data)
+
+# 🔥 PANDAS İLE ZORLA TİP DÖNÜŞÜMÜ (EN KRİTİK YER)
+if not df.empty:
+    # Sütun isimlerindeki boşlukları temizle (Bazen 'Fiyat ' yazar hata verir)
+    df.columns = df.columns.str.strip()
+    
+    if 'Lot' in df.columns:
+        df['Lot'] = df['Lot'].apply(zorla_sayi_yap)
+    
+    if 'Fiyat' in df.columns:
+        df['Fiyat'] = df['Fiyat'].apply(zorla_sayi_yap)
 
 # --- 6. OTURUM AÇMA ---
 if "giris" in st.query_params and st.query_params["giris"] == "ok":
@@ -124,8 +146,8 @@ if not st.session_state.giris_yapildi:
 
 # --- MENÜ ---
 with st.sidebar:
-    st.title("Yatırımcı v5.2")
-    secim = st.radio("Menü", ["📊 Canlı Portföy", "🚀 Halka Arzlar", "🧠 Portföy Analizi", "➕ İşlem Ekle", "📝 İşlem Geçmişi"])
+    st.title("Yatırımcı v5.3")
+    secim = st.radio("Menü", ["📊 Canlı Portföy", "🚀 Halka Arzlar", "🧠 Portföy Analizi", "➕ İşlem Ekle", "📝 İşlem Geçmişi", "🛠️ Veri Kontrol (Debug)"])
     st.divider()
     if st.button("🔄 Yenile"):
         st.cache_data.clear()
@@ -145,11 +167,6 @@ if secim == "📊 Canlı Portföy":
         genel_toplam_deger = 0
         genel_toplam_maliyet = 0
         
-        # 🔥 ÖNCE TÜM VERİYİ TEMİZLE
-        # Bu kısım o saçma sayıları düzeltir
-        if 'Lot' in df.columns: df['Lot'] = df['Lot'].apply(sayi_duzelt_nukleer)
-        if 'Fiyat' in df.columns: df['Fiyat'] = df['Fiyat'].apply(sayi_duzelt_nukleer)
-
         my_bar = st.progress(0, text="Analiz ediliyor...")
         hisseler = df['Hisse Adı'].unique()
         toplam_sayi = len(hisseler)
@@ -162,11 +179,10 @@ if secim == "📊 Canlı Portföy":
             alis = temp_df[temp_df['İşlem'] == 'Alış']
             satis = temp_df[temp_df['İşlem'] == 'Satış']
             
-            # Artık bunlar kesin sayı, metin olma şansı yok
+            # Artık bunlar kesinlikle sayı
             net_lot = alis['Lot'].sum() - satis['Lot'].sum()
             
             if net_lot > 0:
-                # Maliyet Hesabı
                 toplam_maliyet = (alis['Lot'] * alis['Fiyat']).sum()
                 toplam_alis_lot = alis['Lot'].sum()
                 ort_maliyet = toplam_maliyet / toplam_alis_lot if toplam_alis_lot > 0 else 0
@@ -227,8 +243,6 @@ elif secim == "🧠 Portföy Analizi":
     st.header("🧠 Yapay Zeka Risk Analizi")
     if st.button("Analizi Başlat", use_container_width=True):
         if not df.empty:
-            df['Lot'] = df['Lot'].apply(sayi_duzelt_nukleer)
-            df['Fiyat'] = df['Fiyat'].apply(sayi_duzelt_nukleer)
             df['Tutar'] = df['Fiyat'] * df['Lot']
             st.bar_chart(df, x="Hisse Adı", y="Tutar")
         else:
@@ -241,7 +255,7 @@ elif secim == "➕ İşlem Ekle":
 
     col1, col2 = st.columns(2)
     with col1:
-        hisse = st.text_input("Hisse Kodu").upper()
+        hisse = st.text_input("Hisse Kodu (Örn: ASELS, AAPL)").upper()
         if st.button("⚡ Fiyat Getir"):
             if hisse:
                 with st.spinner("Aranıyor..."):
@@ -262,10 +276,7 @@ elif secim == "➕ İşlem Ekle":
         if hisse and lot>0 and fiyat>0:
             try:
                 temiz_hisse = hisse.strip().upper()
-                # KAYDEDERKEN FORMATI SABİTLİYORUZ
-                # Ne girersen gir (10,50) -> (10.50) olarak kaydeder
-                temiz_fiyat = str(fiyat).replace(',', '.')
-                
+                temiz_fiyat = str(fiyat).replace(',', '.') # Nokta garantisi
                 yeni_veri = [str(tarih), temiz_hisse, islem, lot, temiz_fiyat, str(halka_arz).upper()]
                 sheet.append_row(yeni_veri)
                 st.success("✅ Kaydedildi!")
@@ -277,3 +288,21 @@ elif secim == "➕ İşlem Ekle":
 elif secim == "📝 İşlem Geçmişi":
     st.header("📝 Tüm Kayıtlar")
     if not df.empty: st.dataframe(df, use_container_width=True)
+
+# 6. DEBUG (HATA AYIKLAMA) - SADECE BURAYA BAKARAK SORUNU ÇÖZEBİLİRSİN
+elif secim == "🛠️ Veri Kontrol (Debug)":
+    st.header("🛠️ Veri Mühendisi Ekranı")
+    st.write("Burada verilerin Python tarafından nasıl görüldüğünü analiz ediyoruz.")
+    
+    if not df.empty:
+        st.write("### 1. Ham Veri Tipleri")
+        st.write(df.dtypes)
+        
+        st.write("### 2. İlk 5 Satır")
+        st.dataframe(df.head())
+        
+        st.write("### 3. Fiyat Sütunu Analizi")
+        st.write("Eğer burada 'object' yazıyorsa metindir, 'float' yazıyorsa sayıdır.")
+        st.write(df['Fiyat'].describe())
+    else:
+        st.warning("Veri yok.")
