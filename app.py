@@ -38,7 +38,7 @@ def get_data():
         # =======================================================
         # 👇 LİNKİ BURAYA YAPIŞTIRMAYI UNUTMA 👇
         # =======================================================
-        sheet_url = "BURAYA_GOOGLE_SHEET_LINKINI_YAPISTIR"
+        sheet_url = "https://docs.google.com/spreadsheets/d/1ijPoTKNsXZBMxdRdMa7cpEhbSYt9kMwoqf5nZFNi7S8/edit?gid=0#gid=0"
         # =======================================================
         
         sheet = client.open_by_url(sheet_url).sheet1
