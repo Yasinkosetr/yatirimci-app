@@ -89,7 +89,7 @@ with st.sidebar:
             st.query_params.clear()
             st.rerun()
 
-# --- ÖZEL VERİ ÇEKME FONKSİYONU (HATAYI ÇÖZEN KISIM) ---
+# --- ÖZEL VERİ ÇEKME FONKSİYONU ---
 @st.cache_data(ttl=60)
 def veri_getir_ozel(hisse_kodu):
     # 1. Temizlik
@@ -196,4 +196,11 @@ if secim == "📊 Canlı Portföy":
 elif secim == "🚀 Halka Arzlar":
     st.header("🚀 Halka Arzlar")
     if not df.empty and 'Halka Arz' in df.columns:
-        arz_df = df[df['Halka Arz'].astype(str).str.upper() ==
+        # HATA DÜZELTİLDİ: Satırın sonuna == 'TRUE'] eklendi.
+        arz_df = df[df['Halka Arz'].astype(str).str.upper() == 'TRUE']
+        if not arz_df.empty: st.dataframe(arz_df, use_container_width=True)
+        else: st.info("Kayıt yok.")
+    else: st.info("Veri yok.")
+
+# SAYFA: ANALİZ
+elif secim == "🧠 Port
