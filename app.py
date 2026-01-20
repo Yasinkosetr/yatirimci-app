@@ -8,7 +8,7 @@ import time
 import hashlib
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="Yatırımcı Pro V9.5", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Yatırımcı Pro V9.6", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. TASARIM ---
 st.markdown(
@@ -40,7 +40,7 @@ def get_sheets():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], ['https://www.googleapis.com/auth/spreadsheets'])
         client = gspread.authorize(creds)
         # 👇 LİNKİ BURAYA YAPIŞTIR 👇
-        sheet_url = "https://docs.google.com/spreadsheets/d/1ijPoTKNsXZBMxdRdMa7cpEhbSYt9kMwoqf5nZFNi7S8/edit?gid=499369690#gid=499369690"
+        sheet_url = "https://docs.google.com/spreadsheets/d/1ijPoTKNsXZBMxdRdMa7cpEhbSYt9kMwoqf5nZFNi7S8/edit?gid=0#gid=0"
         spreadsheet = client.open_by_url(sheet_url)
         return spreadsheet.worksheet("Islemler"), spreadsheet.worksheet("Uyeler")
     except Exception as e:
@@ -159,20 +159,11 @@ try:
     else: df = pd.DataFrame()
 except: df = pd.DataFrame()
 
-# --- MENÜ DÜZENLEMESİ (SORUN BURADAYDI) ---
+# --- MENÜ ---
 with st.sidebar:
     st.write(f"👤 **{st.session_state.kullanici_adi}**")
-    
-    # 🔥 FIX: Menü değişince hisse detayını sıfırlayan fonksiyon
-    def menu_reset():
-        st.session_state.secilen_hisse_detay = None
-        
-    secim = st.radio(
-        "Menü", 
-        ["📊 Canlı Portföy", "📈 Borsa Takip", "🚀 Halka Arzlar", "🧠 Portföy Analizi", "➕ İşlem Ekle", "📝 İşlem Geçmişi"],
-        on_change=menu_reset # Menüye tıklandığında hafızayı temizler
-    )
-    
+    def menu_reset(): st.session_state.secilen_hisse_detay = None
+    secim = st.radio("Menü", ["📊 Canlı Portföy", "📈 Borsa Takip", "🚀 Halka Arzlar", "🧠 Portföy Analizi", "➕ İşlem Ekle", "📝 İşlem Geçmişi"], on_change=menu_reset)
     st.divider()
     if st.button("🔄 Yenile"): st.cache_data.clear(); st.rerun()
     if st.button("🔒 Çıkış"): 
@@ -182,19 +173,15 @@ with st.sidebar:
 
 # --- HİSSE DETAY SAYFASI ---
 def hisse_detay_goster(sembol):
-    # Geri dön butonu
     if st.button("⬅️ Listeye Geri Dön", use_container_width=True):
         st.session_state.secilen_hisse_detay = None
         st.rerun()
-        
     with st.spinner(f"{sembol} analiz ediliyor..."):
         fiyat, isim, tam_kod, degisim = veri_getir_ozel(sembol)
         analiz = hisse_performans_analizi(tam_kod)
-        
     if analiz:
         st.header(f"📈 {isim} ({tam_kod})")
         st.metric("Anlık Fiyat", f"{analiz['Fiyat']:.2f} ₺", delta=f"%{degisim:.2f}")
-        
         st.divider()
         st.subheader("📊 Performans Karnesi")
         c1, c2, c3, c4, c5 = st.columns(5)
@@ -203,7 +190,6 @@ def hisse_detay_goster(sembol):
         c3.metric("3 Ay", f"%{analiz['3 Ay']:.2f}", delta=f"{analiz['3 Ay']:.2f}")
         c4.metric("1 Yıl", f"%{analiz['1 Yıl']:.2f}", delta=f"{analiz['1 Yıl']:.2f}")
         c5.metric("5 Yıl", f"%{analiz['5 Yıl']:.2f}", delta=f"{analiz['5 Yıl']:.2f}")
-        
         st.divider()
         col_al, col_sat = st.columns(2)
         with col_al:
@@ -240,7 +226,6 @@ else:
             anlik, gerceklesen = portfoy_hesapla(df.copy())
             aktifler = [k for k, v in anlik.items() if v['Adet'] > 0]
             eldekilerin_degeri, eldekilerin_maliyeti = 0, 0
-            
             if aktifler:
                 for s in aktifler:
                     v = anlik[s]
@@ -262,8 +247,6 @@ else:
                 c1, c2 = st.columns(2)
                 c1.metric("Portföy Değeri", f"{eldekilerin_degeri:,.2f} ₺")
                 c2.metric("GENEL NET DURUM", f"{genel_net:,.2f} ₺", delta=f"{genel_net:,.2f}")
-
-                # Portföy İçi Hızlı Al/Sat
                 st.divider()
                 with st.expander("⚡ Hızlı Al/Sat Paneli", expanded=True):
                     secilen_hisse = st.selectbox("Hisse", aktifler, key="hzl_select")
@@ -293,36 +276,25 @@ else:
                                 time.sleep(1)
                                 st.rerun()
                             except Exception as e: st.error(f"Hata: {e}")
-
                 st.divider()
                 with st.expander("🚨 Hesabımı Sıfırla (Geri Dönüş Yok)"):
-                    st.write("Bu işlem SADECE SENİN tüm alım satım geçmişini siler. Bakiye sıfırlanır.")
-                    if st.button("⚠️ TÜM VERİLERİMİ SİL"):
-                        st.session_state.sifirlama_onay = True
-                
+                    if st.button("⚠️ TÜM VERİLERİMİ SİL"): st.session_state.sifirlama_onay = True
                 if st.session_state.get('sifirlama_onay'):
-                    st.error("🛑 EMİN MİSİN? Tüm geçmişin silinecek.")
-                    k1, k2 = st.columns(2)
-                    with k1:
-                        if st.button("✅ EVET, SİL", type="primary"):
-                            try:
-                                all_rows = ws_islemler.get_all_values()
-                                header = all_rows[0]
-                                data_rows = all_rows[1:]
-                                keep_rows = [row for row in data_rows if row[0] != st.session_state.kullanici_adi]
-                                ws_islemler.clear()
-                                ws_islemler.append_row(header)
-                                if keep_rows: ws_islemler.append_rows(keep_rows)
-                                st.success("Hesabınız tertemiz oldu.")
-                                st.session_state.sifirlama_onay = False
-                                time.sleep(2)
-                                st.rerun()
-                            except Exception as e: st.error(f"Hata: {e}")
-                    with k2:
-                        if st.button("❌ VAZGEÇ"):
+                    if st.button("✅ EVET, SİL", type="primary"):
+                        try:
+                            all_rows = ws_islemler.get_all_values()
+                            header = all_rows[0]
+                            data_rows = all_rows[1:]
+                            keep_rows = [row for row in data_rows if row[0] != st.session_state.kullanici_adi]
+                            ws_islemler.clear()
+                            ws_islemler.append_row(header)
+                            if keep_rows: ws_islemler.append_rows(keep_rows)
+                            st.success("Sıfırlandı.")
                             st.session_state.sifirlama_onay = False
+                            time.sleep(2)
                             st.rerun()
-
+                        except Exception as e: st.error(f"Hata: {e}")
+                    if st.button("❌ VAZGEÇ"): st.session_state.sifirlama_onay = False; st.rerun()
             else: st.info("Portföy boş.")
         else: st.warning("Veri yok.")
 
@@ -354,12 +326,75 @@ else:
             if not arz.empty: st.dataframe(arz, use_container_width=True)
             else: st.info("Yok.")
 
+    # 🔥🔥🔥 YENİLENEN YAPAY ZEKA PORTFÖY ANALİZİ 🔥🔥🔥
     elif secim == "🧠 Portföy Analizi":
-        st.header("🧠 Analiz")
+        st.header("🧠 Yapay Zeka Portföy Analizi")
+        st.caption("Portföyünüzün röntgenini çekiyoruz...")
+        
         if not df.empty:
-            df['Tutar'] = df['Fiyat'] * df['Lot']
-            st.bar_chart(df, x="Hisse Adı", y="Tutar")
-        else: st.warning("Veri yok.")
+            if st.button("Analizi Başlat", use_container_width=True, type="primary"):
+                with st.spinner("Yapay zeka verilerinizi inceliyor..."):
+                    anlik, _ = portfoy_hesapla(df.copy())
+                    
+                    # Veri Hazırlığı
+                    ozet = []
+                    toplam_deger = 0
+                    halka_arz_sayisi = 0
+                    toplam_islem_sayisi = len(df)
+                    
+                    if 'Halka Arz' in df.columns:
+                        halka_arz_sayisi = len(df[df['Halka Arz'].astype(str).str.upper() == 'TRUE'])
+                    
+                    for k, v in anlik.items():
+                        if v['Adet'] > 0:
+                            # Fiyatı çek, çekemezsen maliyeti kullan
+                            f, _, _, _ = veri_getir_ozel(k)
+                            guncel = f if f else v['Ort_Maliyet']
+                            
+                            tutar = v['Adet'] * guncel
+                            toplam_deger += tutar
+                            ozet.append({"Hisse": k, "Değer": tutar})
+                    
+                    # --- ANALİZ MOTORU ---
+                    st.divider()
+                    col_chart, col_report = st.columns([1, 1])
+                    
+                    with col_chart:
+                        st.subheader("📊 Dağılım")
+                        if ozet:
+                            df_chart = pd.DataFrame(ozet)
+                            st.bar_chart(df_chart, x="Hisse", y="Değer")
+                        else:
+                            st.warning("Grafik çizecek veri yok.")
+
+                    with col_report:
+                        st.subheader("🤖 Zeka Raporu")
+                        uyarilar = []
+                        
+                        # 1. Çeşitlilik Kontrolü
+                        if ozet:
+                            en_buyuk = max(ozet, key=lambda x:x['Değer'])
+                            oran = (en_buyuk['Değer'] / toplam_deger) * 100
+                            if oran > 50:
+                                uyarilar.append(f"⚠️ **Yüksek Risk:** Portföyünün **%{int(oran)}** kadarı tek bir hissede ({en_buyuk['Hisse']}). 'Yumurta sepeti' kuralını ihlal ediyorsun.")
+                            elif oran < 20 and len(ozet) > 4:
+                                st.success("✅ **Mükemmel Dağılım:** Portföyün dengeli, riski güzel dağıtmışsın.")
+                        
+                        # 2. Halka Arz Bağımlılığı
+                        if toplam_islem_sayisi > 0:
+                            arz_orani = (halka_arz_sayisi / toplam_islem_sayisi) * 100
+                            if arz_orani > 60:
+                                uyarilar.append(f"⚠️ **Halka Arz Bağımlılığı:** İşlemlerinin **%{int(arz_orani)}** kadarı Halka Arz. Sadece kısa vadeli fırsatlara odaklanıyorsun, uzun vadeli şirketleri de incele.")
+                        
+                        # 3. Genel Yorum
+                        if not uyarilar:
+                            st.info("💡 Portföyünde bariz bir risk görülmüyor. Stratejine sadık kal.")
+                        else:
+                            for u in uyarilar:
+                                st.markdown(u)
+                                
+        else:
+            st.warning("Analiz yapmak için önce hisse almalısınız.")
 
     elif secim == "➕ İşlem Ekle":
         st.header("İşlem Ekle")
