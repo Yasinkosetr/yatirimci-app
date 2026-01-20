@@ -4,10 +4,10 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
-# --- AYARLAR ---
+# --- 1. AYARLAR ---
 st.set_page_config(page_title="Yatırımcı Pro", layout="wide", initial_sidebar_state="expanded")
 
-# --- TASARIM ---
+# --- 2. TASARIM (CSS) ---
 st.markdown(
     """
     <style>
@@ -19,36 +19,41 @@ st.markdown(
     """, unsafe_allow_html=True
 )
 
-# --- GOOGLE SHEETS BAĞLANTISI ---
+# --- 3. GOOGLE SHEETS BAĞLANTISI ---
 def get_data():
     try:
+        # Secrets kontrolü
         if "gcp_service_account" not in st.secrets:
-            st.error("Secrets ayarı yapılmamış.")
+            st.error("Secrets ayarı (JSON) bulunamadı.")
             st.stop()
             
         creds_dict = st.secrets["gcp_service_account"]
         
-        # Geniş yetki (Drive + Sheets)
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        # Sadece Sheets yetkisi (Drive hatası vermesin diye)
+        scope = ['https://www.googleapis.com/auth/spreadsheets']
         
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         
-        # Dosyayı İSMİNDEN buluyoruz
-        sheet = client.open("Yatirimci_DB").sheet1
+        # -------------------------------------------------------
+        # DİKKAT: AŞAĞIDAKİ TIRNAKLARIN İÇİNE KENDİ SHEET ID'Nİ YAPIŞTIR
+        # -------------------------------------------------------
+        sheet_id = "BURAYA_SHEET_ID_YAPISTIR" 
+        
+        # ID ile dosyayı bul
+        sheet = client.open_by_key(sheet_id).sheet1
         data = sheet.get_all_records()
         return sheet, data
 
     except Exception as e:
         st.error(f"Bağlantı Hatası: {e}")
-        st.info("Eğer 'API Disabled' hatası alıyorsan, sana verdiği linke tıkla ve Enable de.")
         st.stop()
 
 # Veriyi çek
 sheet, data = get_data()
 df = pd.DataFrame(data)
 
-# --- OTURUM AÇMA ---
+# --- 4. OTURUM AÇMA (KALICI) ---
 if "giris" in st.query_params and st.query_params["giris"] == "ok":
     st.session_state.giris_yapildi = True
 elif 'giris_yapildi' not in st.session_state:
@@ -74,10 +79,10 @@ if not st.session_state.giris_yapildi:
     giris_ekrani()
     st.stop()
 
-# --- MENÜ ---
+# --- 5. YAN MENÜ ---
 with st.sidebar:
-    st.title("Yatırımcı v2.5")
-    secim = st.radio("Menü", ["📊 Güncel Portföy", "🚀 Halka Arzlar", "➕ İşlem Ekle", "📝 İşlem Geçmişi"])
+    st.title("Yatırımcı v3.0")
+    secim = st.radio("Menü", ["📊 Güncel Portföy", "🚀 Halka Arzlar", "🧠 Portföy Analizi", "➕ İşlem Ekle", "📝 İşlem Geçmişi"])
     
     col1, col2 = st.columns(2)
     with col1:
@@ -90,9 +95,9 @@ with st.sidebar:
             st.query_params.clear()
             st.rerun()
 
-# --- SAYFALAR ---
+# --- 6. SAYFALAR ---
 
-# 1. GÜNCEL PORTFÖY
+# SAYFA: GÜNCEL PORTFÖY
 if secim == "📊 Güncel Portföy":
     st.header("📊 Portföy Durumu")
     if not df.empty:
@@ -100,7 +105,7 @@ if secim == "📊 Güncel Portföy":
         for sembol in df['Hisse Adı'].unique():
             temp_df = df[df['Hisse Adı'] == sembol]
             
-            # Sayıya çevir
+            # Sayıya çevir (Hata önle)
             temp_df['Lot'] = pd.to_numeric(temp_df['Lot'], errors='coerce').fillna(0)
             temp_df['Fiyat'] = pd.to_numeric(temp_df['Fiyat'], errors='coerce').fillna(0)
             
@@ -123,27 +128,106 @@ if secim == "📊 Güncel Portföy":
         if ozet_listesi:
             st.dataframe(pd.DataFrame(ozet_listesi), use_container_width=True)
         else:
-            st.info("Portföy boş.")
+            st.info("Portföy boş (veya tüm pozisyonlar kapalı).")
     else:
         st.warning("Veri yok.")
 
-# 2. HALKA ARZLAR
+# SAYFA: HALKA ARZLAR
 elif secim == "🚀 Halka Arzlar":
     st.header("🚀 Halka Arzlar")
     if not df.empty:
-        arz_df = df[df['Halka Arz'].astype(str).str.upper() == 'TRUE']
-        if not arz_df.empty:
-            st.dataframe(arz_df, use_container_width=True)
+        # Sütun ismi kontrolü (Hata vermemesi için)
+        if 'Halka Arz' in df.columns:
+            try:
+                arz_df = df[df['Halka Arz'].astype(str).str.upper() == 'TRUE']
+                if not arz_df.empty:
+                    st.dataframe(arz_df, use_container_width=True)
+                else:
+                    st.info("Halka arz kaydı yok.")
+            except:
+                st.error("Halka arz filtresi çalışırken hata oluştu.")
         else:
-            st.info("Halka arz yok.")
+            st.error("Google Sheet dosyanızda 'Halka Arz' sütunu bulunamadı.")
+    else:
+        st.info("Veri yok.")
 
-# 3. İŞLEM EKLE
+# SAYFA: ANALİZ (YENİ)
+elif secim == "🧠 Portföy Analizi":
+    st.header("🧠 Yapay Zeka Portföy Analizi")
+    st.caption("Yatırım alışkanlıklarınızın risk raporu.")
+    
+    if not df.empty:
+        if st.button("Analizi Başlat", use_container_width=True):
+            st.spinner("Hesaplanıyor...")
+            
+            # Veri Hazırlığı
+            ozet = []
+            toplam_portfoy_degeri = 0
+            halka_arz_sayisi = 0
+            toplam_islem = len(df)
+            
+            # Halka Arz Sayımı
+            if 'Halka Arz' in df.columns:
+                 halka_arz_sayisi = len(df[df['Halka Arz'].astype(str).str.upper() == 'TRUE'])
+
+            # Portföy Değerini Hesapla
+            for sembol in df['Hisse Adı'].unique():
+                temp = df[df['Hisse Adı'] == sembol]
+                temp['Lot'] = pd.to_numeric(temp['Lot'], errors='coerce').fillna(0)
+                temp['Fiyat'] = pd.to_numeric(temp['Fiyat'], errors='coerce').fillna(0)
+                
+                alis = temp[temp['İşlem'] == 'Alış']
+                satis = temp[temp['İşlem'] == 'Satış']
+                net_lot = alis['Lot'].sum() - satis['Lot'].sum()
+                
+                if net_lot > 0:
+                    # Basitlik için şu anki değeri maliyetten hesaplıyoruz
+                    maliyet = (alis['Lot'] * alis['Fiyat']).sum() / alis['Lot'].sum() if alis['Lot'].sum() > 0 else 0
+                    tutar = net_lot * maliyet
+                    toplam_portfoy_degeri += tutar
+                    ozet.append({"Hisse": sembol, "Değer": tutar})
+            
+            # --- Raporlama ---
+            st.divider()
+            col1, col2 = st.columns(2)
+            
+            uyarilar = []
+            
+            # 1. Çeşitlilik Kontrolü
+            en_buyuk = max(ozet, key=lambda x:x['Değer']) if ozet else None
+            if en_buyuk and toplam_portfoy_degeri > 0:
+                oran = (en_buyuk['Değer'] / toplam_portfoy_degeri) * 100
+                if oran > 50:
+                    uyarilar.append(f"⚠️ **Yüksek Risk:** Portföyünün **%{int(oran)}** kadarı tek bir hissede ({en_buyuk['Hisse']}).")
+            
+            # 2. Halka Arz Kontrolü
+            if toplam_islem > 0:
+                arz_orani = (halka_arz_sayisi / toplam_islem) * 100
+                if arz_orani > 60:
+                    uyarilar.append(f"⚠️ **Davranış Uyarısı:** İşlemlerinin **%{int(arz_orani)}** kadarı Halka Arz. Uzun vadeye odaklan.")
+
+            with col1:
+                st.subheader("🚨 Risk Raporu")
+                if uyarilar:
+                    for u in uyarilar: st.write(u)
+                else:
+                    st.success("✅ Büyük bir risk (çeşitlilik veya davranışsal) tespit edilmedi.")
+            
+            with col2:
+                st.subheader("📊 Dağılım Grafiği")
+                if ozet:
+                    st.bar_chart(pd.DataFrame(ozet), x="Hisse", y="Değer")
+                else:
+                    st.info("Grafik için yeterli veri yok.")
+    else:
+        st.warning("Analiz için önce işlem eklemelisiniz.")
+
+# SAYFA: İŞLEM EKLE
 elif secim == "➕ İşlem Ekle":
     st.header("Yeni Yatırım Ekle")
     col1, col2 = st.columns(2)
     with col1:
         hisse = st.text_input("Hisse Kodu").upper()
-        # HATALI SATIR BURADAYDI, DÜZELTİLDİ:
         islem = st.selectbox("İşlem", ["Alış", "Satış"])
         tarih = st.date_input("Tarih", datetime.now()).strftime("%Y-%m-%d")
     with col2:
@@ -156,11 +240,13 @@ elif secim == "➕ İşlem Ekle":
             try:
                 yeni_veri = [str(tarih), hisse, islem, lot, fiyat, str(halka_arz).upper()]
                 sheet.append_row(yeni_veri)
-                st.success("Kaydedildi! 'Yenile' butonuna bas.")
+                st.success("✅ Kaydedildi! 'Yenile' butonuna bas.")
             except Exception as e:
                 st.error(f"Hata: {e}")
+        else:
+            st.warning("Hisse adı giriniz.")
 
-# 4. GEÇMİŞ
+# SAYFA: GEÇMİŞ
 elif secim == "📝 İşlem Geçmişi":
     st.header("📝 Tüm Kayıtlar")
     if not df.empty:
