@@ -8,7 +8,7 @@ import time
 import hashlib
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="Yatırımcı Pro V8.0", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Yatırımcı Pro V8.1", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. TASARIM ---
 st.markdown(
@@ -90,17 +90,11 @@ def veri_getir_ozel(hisse_kodu):
     except: pass
     return None, sembol
 
-# Toplu Veri Çekme (Piyasa Ekranı İçin)
-@st.cache_data(ttl=300) # 5 dakikada bir yeniler
+@st.cache_data(ttl=300)
 def piyasa_verileri_getir():
-    # Popüler 15 Hisse
     semboller = ['THYAO.IS', 'GARAN.IS', 'ASELS.IS', 'SASA.IS', 'EREGL.IS', 
                  'TUPRS.IS', 'FROTO.IS', 'KCHOL.IS', 'SISE.IS', 'BIMAS.IS', 
                  'AKBNK.IS', 'HEKTS.IS', 'PETKM.IS', 'KONTR.IS', 'ASTOR.IS']
-    
-    veriler = []
-    # Toplu indirme daha hızlıdır ama detay için tek tek de bakabiliriz.
-    # Burada kullanıcı deneyimi için tek tek progress bar ile göstereceğiz.
     return semboller
 
 def portfoy_hesapla(df):
@@ -208,9 +202,8 @@ else:
 # --- MENÜ ---
 with st.sidebar:
     st.write(f"👤 **Aktif Üye:** {st.session_state.kullanici_adi}")
-    st.title("Yatırımcı v8.0")
-    # YENİ MENÜ EKLENDİ 👇
-    secim = st.radio("Menü", ["📊 Canlı Portföy", "📈 Borsa Takip (Yeni)", "🚀 Halka Arzlar", "🧠 Portföy Analizi", "➕ İşlem Ekle", "📝 İşlem Geçmişi"])
+    st.title("Yatırımcı v8.1")
+    secim = st.radio("Menü", ["📊 Canlı Portföy", "📈 Borsa Takip", "🚀 Halka Arzlar", "🧠 Portföy Analizi", "➕ İşlem Ekle", "📝 İşlem Geçmişi"])
     st.divider()
     if st.button("🔄 Yenile"):
         st.cache_data.clear()
@@ -335,43 +328,34 @@ if secim == "📊 Canlı Portföy":
     else:
         st.info("Henüz işlem yapmadınız.")
 
-# 🔥 YENİ SAYFA: BORSA TAKİP (PİYASA EKRANI) 🔥
-elif secim == "📈 Borsa Takip (Yeni)":
+# 🔥 YENİ SAYFA: BORSA TAKİP (Yuvarlanmış Fiyatlar) 🔥
+elif secim == "📈 Borsa Takip":
     st.header("📈 Canlı Borsa Ekranı")
-    
-    # 1. ARAMA MOTORU
     st.subheader("🔍 Hisse Ara")
     col_ara1, col_ara2 = st.columns([3, 1])
     with col_ara1:
         aranan = st.text_input("Sembol Girin (Örn: GARAN, AAPL, BTC-USD)", placeholder="BIST, ABD veya Kripto arayın...")
     
-    # Arama Sonucu
     if aranan:
         with st.spinner(f"{aranan} aranıyor..."):
             fiyat, isim = veri_getir_ozel(aranan)
             if fiyat:
                 st.success("Bulundu!")
-                st.metric(label=isim, value=f"{fiyat} ₺ (veya $)")
+                # BURADA YUVARLAMA YAPILDI (:.2f)
+                st.metric(label=isim, value=f"{fiyat:.2f} ₺ (veya $)")
             else:
-                st.error("Hisse bulunamadı. Kodu doğru yazdığınızdan emin olun.")
+                st.error("Hisse bulunamadı.")
     
     st.divider()
-    
-    # 2. POPÜLER HİSSELER VİTRİNİ
     st.subheader("🔥 Popüler 15 Hisse (BIST)")
-    st.caption("Veriler canlı olarak çekilmektedir.")
-    
     populer_list = piyasa_verileri_getir()
-    
-    # 3'lü kolonlar halinde gösterelim
     cols = st.columns(3)
-    
-    # Verileri tek tek çekip kutucuklara basalım
     for i, sembol in enumerate(populer_list):
-        with cols[i % 3]: # 3 kolona dağıtma mantığı
+        with cols[i % 3]:
             fiyat, isim = veri_getir_ozel(sembol)
             if fiyat:
-                st.metric(label=sembol.replace(".IS", ""), value=f"{fiyat} ₺")
+                # BURADA YUVARLAMA YAPILDI (:.2f)
+                st.metric(label=sembol.replace(".IS", ""), value=f"{fiyat:.2f} ₺")
             else:
                 st.metric(label=sembol, value="--")
 
