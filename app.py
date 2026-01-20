@@ -13,42 +13,51 @@ import streamlit.components.v1 as components
 from email.utils import parsedate_to_datetime
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="Yatırımcı Pro V11.5", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Yatırımcı Pro V11.6", layout="wide", initial_sidebar_state="expanded")
 
-# --- 2. TASARIM VE RENKLER ---
-MAIN_BG = "#0b121f"  # Logodaki koyu lacivert/siyah arka planla uyumlu
-SIDEBAR_BG = "#162030" 
-ACCENT_COLOR = "#38ef7d" # Logodaki parlak yeşil
+# --- 2. LOGO VE TASARIM (GARANTİLİ ÇÖZÜM) ---
+# Dosya yükleme derdi bitti, logo internetten geliyor:
+LOGO_URL = "https://i.ibb.co/cSBqL3Bv/logo.png"
 
+# SENİN İSTEDİĞİN ARKA PLAN RENGİ BURADA 👇
 st.markdown(
-    f"""
+    """
     <style>
     /* Ana Arka Plan */
-    .stApp {{
-        background-color: {MAIN_BG};
-        background-image: radial-gradient(at 50% 0%, rgba(56, 239, 125, 0.1) 0, transparent 50%);
-    }}
+    .stApp {
+        background-color: #1e1e2f;
+    }
     
-    /* Yan Menü */
-    [data-testid="stSidebar"] {{
-        background-color: {SIDEBAR_BG};
+    /* Yan Menü (Biraz daha koyusu olsun ki ayrışsın) */
+    [data-testid="stSidebar"] {
+        background-color: #161625;
         border-right: 1px solid rgba(255,255,255,0.05);
-    }}
+    }
     
     /* Metrik Kartları */
-    div[data-testid="stMetric"] {{
-        background-color: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(56, 239, 125, 0.2); /* Yeşil çerçeve */
-        border-radius: 15px;
+    div[data-testid="stMetric"] {
+        background-color: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
         padding: 15px;
-    }}
+    }
+
+    /* Giriş Ekranı Logo Kutusu */
+    .login-container {
+        text-align: center;
+        background: rgba(255, 255, 255, 0.05);
+        padding: 30px;
+        border-radius: 20px;
+        margin-bottom: 20px;
+        border: 1px solid rgba(255,255,255,0.1);
+    }
 
     /* Butonlar */
-    .stButton>button {{
-        border-radius: 12px;
+    .stButton>button {
+        border-radius: 10px;
         font-weight: 600;
         transition: all 0.3s ease;
-    }}
+    }
     </style>
     """, unsafe_allow_html=True
 )
@@ -65,7 +74,8 @@ def get_sheets():
             st.stop()
         creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], ['https://www.googleapis.com/auth/spreadsheets'])
         client = gspread.authorize(creds)
-        sheet_url = "https://docs.google.com/spreadsheets/d/1ijPoTKNsXZBMxdRdMa7cpEhbSYt9kMwoqf5nZFNi7S8/edit?gid=0#gid=0"
+        # 👇 LİNKİ BURAYA YAPIŞTIR 👇
+        sheet_url = "BURAYA_GOOGLE_SHEET_LINKINI_YAPISTIR"
         spreadsheet = client.open_by_url(sheet_url)
         return spreadsheet.worksheet("Islemler"), spreadsheet.worksheet("Uyeler"), spreadsheet.worksheet("Notlar")
     except Exception as e:
@@ -196,7 +206,7 @@ def hisse_performans_analizi(sembol):
     data = {"Fiyat": suan, "1 Gün": degisim(1), "1 Hafta": degisim(5), "3 Ay": degisim(63), "1 Yıl": degisim(252), "5 Yıl": degisim(1260)}
     return data, hist, haberler
 
-# --- 6. GİRİŞ VE LOGO ---
+# --- 6. GİRİŞ VE OTURUM ---
 query_params = st.query_params
 url_kullanici = query_params.get("kullanici", None)
 url_giris = query_params.get("giris", None)
@@ -210,23 +220,25 @@ if 'giris_yapildi' not in st.session_state:
         st.session_state.kullanici_adi = ""
 
 def giris_sayfasi():
-    # 🔥 LOGO BURADA: GİRİŞ EKRANI 🔥
-    col_logo1, col_logo2, col_logo3 = st.columns([1, 1, 1])
-    with col_logo2:
-        try:
-            st.image("logo.png", use_container_width=True)
-        except:
-            st.warning("Logo.png bulunamadı")
+    # 🔥 GİRİŞ EKRANI TASARIMI 🔥
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        st.markdown(f"""
+            <div class="login-container">
+                <img src="{LOGO_URL}" width="100" style="margin-bottom: 15px;">
+                <h2 style='color: #F4D03F; margin:0;'>YATIRIMCI PRO</h2>
+                <p style='color: #ccc; font-size: 14px;'>Geleceğin Portföy Yönetim Asistanı</p>
+            </div>
+        """, unsafe_allow_html=True)
+
+    t1, t2 = st.tabs(["🔐 Giriş Yap", "📝 Kayıt Ol"])
     
-    st.markdown("<h3 style='text-align: center; color: #38ef7d;'>YATIRIMCI PRO</h3>", unsafe_allow_html=True)
-    
-    t1, t2 = st.tabs(["Giriş", "Kayıt"])
     with t1:
         c1, c2, c3 = st.columns([1,2,1])
         with c2:
             u = st.text_input("Kullanıcı Adı")
             p = st.text_input("Şifre", type="password")
-            if st.button("Giriş Yap", type="primary"):
+            if st.button("Giriş Yap", type="primary", use_container_width=True):
                 udf = pd.DataFrame(ws_uyeler.get_all_records())
                 if not udf.empty and u in udf['Kullanıcı Adı'].values:
                     if sifre_kontrol(p, udf[udf['Kullanıcı Adı']==u]['Şifre'].values[0]):
@@ -235,18 +247,20 @@ def giris_sayfasi():
                         st.query_params["kullanici"] = u
                         st.query_params["giris"] = "ok"
                         st.rerun()
-                    else: st.error("Hatalı Şifre")
-                else: st.error("Kullanıcı Yok")
+                    else: st.error("Hatalı Şifre!")
+                else: st.error("Kullanıcı bulunamadı.")
+                
     with t2:
         c1, c2, c3 = st.columns([1,2,1])
         with c2:
+            st.info("Saniyeler içinde hesabınızı oluşturun.")
             nu = st.text_input("Yeni Kullanıcı Adı")
             np = st.text_input("Şifre Belirle", type="password")
-            if st.button("Kayıt Ol"):
+            if st.button("Kayıt Ol", use_container_width=True):
                 try:
                     ws_uyeler.append_row([nu, sifrele(np), datetime.now().strftime("%Y-%m-%d")])
-                    st.success("Kayıt Başarılı! Giriş yapabilirsiniz.")
-                except: st.error("Hata")
+                    st.success("Kayıt Başarılı! Giriş sekmesine geçebilirsiniz.")
+                except: st.error("Hata oluştu.")
 
 if not st.session_state.giris_yapildi:
     giris_sayfasi()
@@ -265,18 +279,17 @@ except: df = pd.DataFrame()
 
 # --- MENÜ ---
 with st.sidebar:
-    # 🔥 LOGO BURADA: YAN MENÜ 🔥
-    try:
-        st.image("logo.png", use_container_width=True)
-    except:
-        st.write("YATIRIMCI PRO")
-        
-    st.write(f"👤 **{st.session_state.kullanici_adi}**")
+    # 🔥 YAN MENÜ LOGOSU (İNTERNETTEN) 🔥
+    st.image(LOGO_URL, use_container_width=True)
+    
+    st.markdown(f"<div style='text-align:center; margin-bottom:10px;'>👋 Hoşgeldin, <b>{st.session_state.kullanici_adi}</b></div>", unsafe_allow_html=True)
+    
     def menu_reset(): st.session_state.secilen_hisse_detay = None
-    secim = st.radio("Menü", ["📊 Canlı Portföy", "📈 Borsa Takip", "🚀 Halka Arzlar", "🧠 Portföy Analizi", "➕ İşlem Ekle", "📝 İşlem Geçmişi"], on_change=menu_reset)
+    secim = st.radio("MENÜ", ["📊 Canlı Portföy", "📈 Borsa Takip", "🚀 Halka Arzlar", "🧠 Portföy Analizi", "➕ İşlem Ekle", "📝 İşlem Geçmişi"], on_change=menu_reset)
+    
     st.divider()
-    if st.button("🔄 Yenile"): st.cache_data.clear(); st.rerun()
-    if st.button("🔒 Çıkış"): 
+    if st.button("🔄 Yenile", use_container_width=True): st.cache_data.clear(); st.rerun()
+    if st.button("🔒 Çıkış", use_container_width=True): 
         st.session_state.giris_yapildi = False
         st.session_state.secilen_hisse_detay = None
         st.query_params.clear()
@@ -298,7 +311,7 @@ def hisse_detay_goster(sembol):
         if hist_data is not None and not hist_data.empty:
             hist_6mo = hist_data.tail(126) 
             fig = go.Figure(data=[go.Candlestick(x=hist_6mo.index, open=hist_6mo['Open'], high=hist_6mo['High'], low=hist_6mo['Low'], close=hist_6mo['Close'], name=tam_kod)])
-            fig.update_layout(xaxis_rangeslider_visible=False, height=400, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='white'))
+            fig.update_layout(xaxis_rangeslider_visible=False, height=400, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#E0E0E0'))
             st.plotly_chart(fig, use_container_width=True)
         st.subheader("📊 Performans Karnesi")
         c1, c2, c3, c4, c5 = st.columns(5)
@@ -311,7 +324,7 @@ def hisse_detay_goster(sembol):
         col_al, col_sat = st.columns(2)
         with col_al:
             al_lot = st.number_input("Lot (Al)", min_value=1, key="detay_al_lot")
-            if st.button("AL (Ekle)", key="detay_btn_al", type="primary"):
+            if st.button("AL (Ekle)", key="detay_btn_al", type="primary", use_container_width=True):
                 try:
                     tarih = datetime.now().strftime("%Y-%m-%d")
                     f_str = str(analiz['Fiyat']).replace(',', '.')
@@ -322,7 +335,7 @@ def hisse_detay_goster(sembol):
                 except Exception as e: st.error(f"Hata: {e}")
         with col_sat:
             sat_lot = st.number_input("Lot (Sat)", min_value=1, key="detay_sat_lot")
-            if st.button("SAT (Düş)", key="detay_btn_sat", type="secondary"):
+            if st.button("SAT (Düş)", key="detay_btn_sat", type="secondary", use_container_width=True):
                 try:
                     tarih = datetime.now().strftime("%Y-%m-%d")
                     f_str = str(analiz['Fiyat']).replace(',', '.')
