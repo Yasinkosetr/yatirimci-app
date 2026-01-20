@@ -45,7 +45,7 @@ def get_sheets():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], ['https://www.googleapis.com/auth/spreadsheets'])
         client = gspread.authorize(creds)
         # 👇 LİNKİ BURAYA YAPIŞTIR 👇
-        sheet_url = "BURAYA_GOOGLE_SHEET_LINKINI_YAPISTIR"
+        sheet_url = "https://docs.google.com/spreadsheets/d/1ijPoTKNsXZBMxdRdMa7cpEhbSYt9kMwoqf5nZFNi7S8/edit?gid=499369690#gid=499369690"
         spreadsheet = client.open_by_url(sheet_url)
         return spreadsheet.worksheet("Islemler"), spreadsheet.worksheet("Uyeler"), spreadsheet.worksheet("Notlar")
     except Exception as e:
