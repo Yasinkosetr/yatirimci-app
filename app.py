@@ -9,9 +9,10 @@ import hashlib
 import plotly.graph_objects as go
 import requests
 import xml.etree.ElementTree as ET
+import streamlit.components.v1 as components # Siteyi gömmek için
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="Yatırımcı Pro V11.0", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Yatırımcı Pro V11.1", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. TASARIM ---
 st.markdown(
@@ -42,6 +43,7 @@ def get_sheets():
             st.stop()
         creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], ['https://www.googleapis.com/auth/spreadsheets'])
         client = gspread.authorize(creds)
+        # 👇 LİNKİ BURAYA YAPIŞTIR 👇
         sheet_url = "https://docs.google.com/spreadsheets/d/1ijPoTKNsXZBMxdRdMa7cpEhbSYt9kMwoqf5nZFNi7S8/edit?gid=0#gid=0"
         spreadsheet = client.open_by_url(sheet_url)
         return spreadsheet.worksheet("Islemler"), spreadsheet.worksheet("Uyeler"), spreadsheet.worksheet("Notlar")
@@ -90,24 +92,46 @@ def veri_getir_ozel(hisse_kodu):
 def piyasa_verileri_getir():
     return ['THYAO.IS', 'GARAN.IS', 'ASELS.IS', 'SASA.IS', 'EREGL.IS', 'TUPRS.IS', 'FROTO.IS', 'KCHOL.IS', 'SISE.IS', 'BIMAS.IS', 'AKBNK.IS', 'HEKTS.IS', 'PETKM.IS', 'KONTR.IS', 'ASTOR.IS']
 
-# 🔥 YENİ: HALKA ARZ VERİLERİNİ ÇEKME MODÜLÜ 🔥
-@st.cache_data(ttl=3600) # 1 saatte bir günceller
-def halka_arz_verilerini_cek():
-    url = "https://halkarz.com/"
-    # Tarayıcı gibi davranmak için User-Agent ekliyoruz
-    header = {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+# 🔥 YENİ: HALKA ARZ HABERLERİNİ ÇEKME (ENGELLENEMEZ YÖNTEM) 🔥
+@st.cache_data(ttl=3600)
+def halka_arz_haberleri():
+    # Google News üzerinden "Halka Arz Takvimi" ve "SPK Onayı" araması yapıyoruz
+    url = "https://news.google.com/rss/search?q=Halka+Arz+Takvimi+SPK+Onayı&hl=tr&gl=TR&ceid=TR:tr"
     
     try:
-        # Sitedeki tüm tabloları okumaya çalışır
-        dfs = pd.read_html(url)
-        # Genellikle halkarz.com'da:
-        # Tablo 0: Yeni/Gelen Arzlar
-        # Tablo 1: Taslak Arzlar (Bazen sıra değişebilir)
-        return dfs
-    except Exception as e:
-        return None
+        resp = requests.get(url, timeout=5)
+        root = ET.fromstring(resp.content)
+        
+        haberler = []
+        for item in root.findall('./channel/item')[:8]: # Son 8 haber
+            title = item.find('title').text
+            link = item.find('link').text
+            pubDate = item.find('pubDate').text
+            
+            # Kaynak ismini başlıktan ayıkla
+            source = "Google News"
+            clean_title = title
+            if "-" in title:
+                parts = title.rsplit("-", 1)
+                clean_title = parts[0].strip()
+                source = parts[1].strip()
+            
+            # Tarihi düzelt
+            try:
+                dt = datetime.strptime(pubDate, "%a, %d %b %Y %H:%M:%S %Z")
+                date_str = dt.strftime("%d-%m-%Y")
+            except:
+                date_str = ""
+
+            haberler.append({
+                'title': clean_title,
+                'link': link,
+                'source': source,
+                'date': date_str
+            })
+        return haberler
+    except Exception:
+        return []
 
 def portfoy_hesapla(df):
     if df.empty: return {}, 0.0
@@ -181,7 +205,7 @@ if 'giris_yapildi' not in st.session_state:
 if 'secilen_hisse_detay' not in st.session_state: st.session_state.secilen_hisse_detay = None
 
 def giris_sayfasi():
-    st.markdown("<h1 style='text-align: center;'>🔐 Yatırımcı Pro V11.0</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center;'>🔐 Yatırımcı Pro V11.1</h1>", unsafe_allow_html=True)
     t1, t2 = st.tabs(["Giriş", "Kayıt"])
     with t1:
         c1, c2, c3 = st.columns([1,2,1])
@@ -243,18 +267,23 @@ def hisse_detay_goster(sembol):
     if st.button("⬅️ Listeye Geri Dön", use_container_width=True):
         st.session_state.secilen_hisse_detay = None
         st.rerun()
-    with st.spinner(f"{sembol} analiz ediliyor..."):
+    
+    with st.spinner(f"{sembol} verileri yükleniyor..."):
         fiyat, isim, tam_kod, degisim = veri_getir_ozel(sembol)
         analiz, hist_data, haberler = hisse_performans_analizi(tam_kod)
+        
     if analiz:
         st.header(f"📈 {isim} ({tam_kod})")
         st.metric("Anlık Fiyat", f"{analiz['Fiyat']:.2f} ₺", delta=f"%{degisim:.2f}")
+        
         st.divider()
+        st.subheader("🕯️ Teknik Grafik (6 Aylık)")
         if hist_data is not None and not hist_data.empty:
             hist_6mo = hist_data.tail(126) 
             fig = go.Figure(data=[go.Candlestick(x=hist_6mo.index, open=hist_6mo['Open'], high=hist_6mo['High'], low=hist_6mo['Low'], close=hist_6mo['Close'], name=tam_kod)])
             fig.update_layout(xaxis_rangeslider_visible=False, height=400, margin=dict(l=20, r=20, t=20, b=20))
             st.plotly_chart(fig, use_container_width=True)
+        
         st.subheader("📊 Performans Karnesi")
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("1 Gün", f"%{analiz['1 Gün']:.2f}", delta=f"{analiz['1 Gün']:.2f}")
@@ -262,6 +291,7 @@ def hisse_detay_goster(sembol):
         c3.metric("3 Ay", f"%{analiz['3 Ay']:.2f}", delta=f"{analiz['3 Ay']:.2f}")
         c4.metric("1 Yıl", f"%{analiz['1 Yıl']:.2f}", delta=f"{analiz['1 Yıl']:.2f}")
         c5.metric("5 Yıl", f"%{analiz['5 Yıl']:.2f}", delta=f"{analiz['5 Yıl']:.2f}")
+        
         st.divider()
         col_al, col_sat = st.columns(2)
         with col_al:
@@ -286,6 +316,23 @@ def hisse_detay_goster(sembol):
                     time.sleep(1)
                     st.rerun()
                 except Exception as e: st.error(f"Hata: {e}")
+
+        with st.expander("🎯 Hedef & Notlar"):
+            not_df = pd.DataFrame(ws_notlar.get_all_records())
+            mevcut_hedef, mevcut_not = 0.0, ""
+            if not not_df.empty:
+                filtre = not_df[(not_df['Kullanıcı'] == st.session_state.kullanici_adi) & (not_df['Hisse'] == tam_kod)]
+                if not filtre.empty:
+                    mevcut_hedef = float(filtre.iloc[-1]['Hedef'])
+                    mevcut_not = filtre.iloc[-1]['Not']
+            yeni_hedef = st.number_input("Hedef Fiyatım", value=mevcut_hedef, step=0.1)
+            yeni_not = st.text_area("Notum:", value=mevcut_not)
+            if st.button("Notu Kaydet", use_container_width=True):
+                try:
+                    ws_notlar.append_row([st.session_state.kullanici_adi, tam_kod, yeni_hedef, yeni_not])
+                    st.success("Kaydedildi!")
+                except Exception as e: st.error(f"Hata: {e}")
+
         st.divider()
         st.subheader(f"📰 {isim} Gündem")
         if haberler:
@@ -325,8 +372,9 @@ else:
                 c1, c2 = st.columns(2)
                 c1.metric("Portföy Değeri", f"{eldekilerin_degeri:,.2f} ₺")
                 c2.metric("GENEL NET DURUM", f"{genel_net:,.2f} ₺", delta=f"{genel_net:,.2f}")
+                
                 st.divider()
-                with st.expander("⚡ Hızlı Al/Sat Paneli", expanded=True):
+                with st.expander("⚡ Hızlı Al/Sat Paneli"):
                     secilen_hisse = st.selectbox("Hisse", aktifler, key="hzl_select")
                     hzl_fiyat, _, hzl_kod, _ = veri_getir_ozel(secilen_hisse)
                     if not hzl_fiyat: hzl_fiyat = 0.0
@@ -354,6 +402,7 @@ else:
                                 time.sleep(1)
                                 st.rerun()
                             except Exception as e: st.error(f"Hata: {e}")
+                
                 st.divider()
                 with st.expander("🚨 Hesabımı Sıfırla"):
                     if st.button("⚠️ TÜM VERİLERİMİ SİL"): st.session_state.sifirlama_onay = True
@@ -397,53 +446,38 @@ else:
                         st.rerun()
                 else: st.write(f"{s}: --")
 
-    # 🔥🔥🔥 YENİLENEN HALKA ARZ SAYFASI 🔥🔥🔥
+    # 🔥 HALKA ARZ SAYFASI (GÜNCELLENDİ) 🔥
     elif secim == "🚀 Halka Arzlar":
-        st.header("🚀 Halka Arz Merkezi")
-        st.info("Veriler halkarz.com üzerinden anlık çekilmektedir.")
+        st.header("🚀 Halka Arzlar")
+        st.info("Aşağıdaki veriler güncel haber akışlarından çekilmektedir.")
         
-        # 3 SEKME
-        arz_tab1, arz_tab2, arz_tab3 = st.tabs(["🆕 Yeni Arzlar & Taslaklar", "📅 Takip Listem (Portföy)", "🔗 Hızlı Linkler"])
+        tab1, tab2 = st.tabs(["🔥 Güncel Gelişmeler", "📅 Takip Listem"])
         
-        # 1. CANLI VERİ (SCRAPING)
-        with arz_tab1:
-            try:
-                with st.spinner("Halkarz.com'a bağlanılıyor..."):
-                    # Verileri çek
-                    arz_tablolari = halka_arz_verilerini_cek()
-                    
-                    if arz_tablolari and len(arz_tablolari) > 0:
-                        st.success("✅ Veriler Güncel")
-                        
-                        # Genelde ilk tablo yeni arzlar olur
-                        st.subheader("📌 Onaylı / Yeni Arzlar")
-                        st.dataframe(arz_tablolari[0], use_container_width=True)
-                        
-                        # Varsa ikinci tablo taslaklar olur
-                        if len(arz_tablolari) > 1:
-                            st.subheader("📝 Taslak Arzlar")
-                            st.dataframe(arz_tablolari[1], use_container_width=True)
-                    else:
-                        st.warning("⚠️ Otomatik veri çekilemedi. Site koruması aktif olabilir. Aşağıdaki linkten kontrol edebilirsiniz.")
-                        st.link_button("Halkarz.com'a Git", "https://halkarz.com/")
-            except Exception as e:
-                st.error(f"Bağlantı hatası: {e}")
+        with tab1:
+            arz_haberleri = halka_arz_haberleri()
+            if arz_haberleri:
+                for h in arz_haberleri:
+                    st.markdown(f"""
+                    <div style="background-color:rgba(255,255,255,0.05); padding:10px; border-radius:5px; margin-bottom:10px;">
+                        <a href="{h['link']}" target="_blank" style="text-decoration:none; color:#4DA6FF; font-weight:bold; font-size:16px;">
+                            {h['title']}
+                        </a><br>
+                        <span style="color:#aaa; font-size:12px;">📰 {h['source']} | 📅 {h['date']}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.warning("Şu an güncel halka arz haberi bulunamadı.")
+            
+            st.divider()
+            # GÖMÜLÜ SİTE (IFRAME) - YEDEK OLARAK
+            st.subheader("🌐 Canlı Tablo (Kaynak: Halkarz.com)")
+            components.iframe("https://halkarz.com/", height=600, scrolling=True)
 
-        # 2. TAKİP LİSTEM (MEVCUT)
-        with arz_tab2:
-            st.write("Portföyüne eklediğin 'Halka Arz' işaretli hisseler:")
+        with tab2:
             if not df.empty and 'Halka Arz' in df.columns:
-                arz_df = df[df['Halka Arz'].astype(str).str.upper() == 'TRUE']
-                if not arz_df.empty: st.dataframe(arz_df, use_container_width=True)
-                else: st.info("Kayıt yok.")
-        
-        # 3. BAĞLANTILAR
-        with arz_tab3:
-            st.markdown("""
-            * [Halkarz.com Ana Sayfa](https://halkarz.com/)
-            * [SPK Bültenleri](https://spk.gov.tr/)
-            * [Borsa İstanbul Duyurular](https://www.borsaistanbul.com/)
-            """)
+                arz = df[df['Halka Arz'].astype(str).str.upper() == 'TRUE']
+                if not arz.empty: st.dataframe(arz, use_container_width=True)
+                else: st.info("Portföyünüzde halka arz hissesi yok.")
 
     elif secim == "🧠 Portföy Analizi":
         st.header("🧠 Analiz")
