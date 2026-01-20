@@ -7,7 +7,7 @@ import yfinance as yf
 import time
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="Yatırımcı Pro Global", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Yatırımcı Pro Fix", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. TASARIM ---
 st.markdown(
@@ -43,10 +43,62 @@ def get_data():
         st.error(f"Veri tabanı hatası: {e}")
         st.stop()
 
+# --- 4. YARDIMCI FONKSİYONLAR ---
+
+# Bu robot gelen veriyi ne olursa olsun SAYIYA çevirir
+def sayi_duzelt(deger):
+    if deger is None or deger == "":
+        return 0.0
+    try:
+        # Zaten sayıysa direkt döndür
+        if isinstance(deger, (int, float)):
+            return float(deger)
+        
+        # Metinse temizle:
+        # Önce binlik ayracı olan noktayı kaldır (1.000 -> 1000)
+        # Sonra ondalık virgülü noktaya çevir (10,5 -> 10.5)
+        temiz = str(deger).replace('.', '').replace(',', '.')
+        return float(temiz)
+    except:
+        return 0.0
+
+@st.cache_data(ttl=60)
+def veri_getir_ozel(hisse_kodu):
+    sembol = str(hisse_kodu).strip().upper()
+    if "-" in sembol: # Kripto vs
+        pass
+    elif not sembol.endswith(".IS"): # Bist
+        sembol_tr = f"{sembol}.IS"
+        try:
+            tik = yf.Ticker(sembol_tr)
+            h = tik.history(period="1d")
+            if not h.empty: return h['Close'].iloc[-1], tik.info.get('longName', sembol)
+        except: pass
+    
+    # Global/Yedek
+    try:
+        tik = yf.Ticker(sembol)
+        h = tik.history(period="1d")
+        if not h.empty: return h['Close'].iloc[-1], tik.info.get('longName', sembol)
+    except: pass
+    
+    return None, sembol
+
+# --- 5. VERİ YÜKLEME VE TEMİZLİK ---
 sheet, data = get_data()
 df = pd.DataFrame(data)
 
-# --- 4. OTURUM AÇMA ---
+# 🔥 KRİTİK NOKTA: Verileri en başta temizliyoruz
+if not df.empty:
+    # Lot ve Fiyat sütunlarını zorla sayıya çeviriyoruz
+    # Sütun isimlerinin tam doğru olduğundan emin ol (Boşluk vs olmasın)
+    # Eğer senin sütun adın ' Lot' ise burayı düzeltmen gerekir.
+    if 'Lot' in df.columns:
+        df['Lot'] = df['Lot'].apply(sayi_duzelt)
+    if 'Fiyat' in df.columns:
+        df['Fiyat'] = df['Fiyat'].apply(sayi_duzelt)
+
+# --- 6. OTURUM AÇMA ---
 if "giris" in st.query_params and st.query_params["giris"] == "ok":
     st.session_state.giris_yapildi = True
 elif 'giris_yapildi' not in st.session_state:
@@ -70,7 +122,7 @@ if not st.session_state.giris_yapildi:
 
 # --- MENÜ ---
 with st.sidebar:
-    st.title("Yatırımcı v5.0")
+    st.title("Yatırımcı v5.1 Fix")
     secim = st.radio("Menü", ["📊 Canlı Portföy", "🚀 Halka Arzlar", "🧠 Portföy Analizi", "➕ İşlem Ekle", "📝 İşlem Geçmişi"])
     st.divider()
     if st.button("🔄 Yenile"):
@@ -80,57 +132,6 @@ with st.sidebar:
         st.session_state.giris_yapildi = False
         st.query_params.clear()
         st.rerun()
-
-# --- YARDIMCI FONKSİYONLAR ---
-
-# AKILLI VERİ ÇEKME ROBOTU (TR ve GLOBAL DESTEKLİ)
-@st.cache_data(ttl=60)
-def veri_getir_ozel(hisse_kodu):
-    sembol = str(hisse_kodu).strip().upper()
-    
-    # Kripto veya özel kodlar (İçinde tire veya nokta varsa direkt ara)
-    if "-" in sembol:
-        try:
-            tik = yf.Ticker(sembol)
-            hist = tik.history(period="1d")
-            if not hist.empty:
-                return hist['Close'].iloc[-1], tik.info.get('longName', sembol)
-        except: pass
-
-    # 1. ÖNCE BORSA İSTANBUL'DA ARA (Varsayılan)
-    try:
-        if not sembol.endswith(".IS"):
-            tr_sembol = f"{sembol}.IS"
-        else:
-            tr_sembol = sembol
-            
-        tik_tr = yf.Ticker(tr_sembol)
-        hist_tr = tik_tr.history(period="1d")
-        
-        if not hist_tr.empty:
-            return hist_tr['Close'].iloc[-1], tik_tr.info.get('longName', sembol)
-    except: pass
-
-    # 2. BULAMAZSAN ABD/GLOBAL PİYASADA ARA (Yedek Plan)
-    try:
-        tik_global = yf.Ticker(sembol)
-        hist_global = tik_global.history(period="1d")
-        if not hist_global.empty:
-             # Global hisse bulundu!
-             return hist_global['Close'].iloc[-1], tik_global.info.get('longName', sembol)
-    except: pass
-
-    # Hiçbir yerde yoksa
-    return None, sembol
-
-# Sayı Temizleme Robotu
-def sayi_temizle(deger):
-    try:
-        if isinstance(deger, (int, float)): return float(deger)
-        temiz = str(deger).replace(',', '.').strip()
-        if not temiz: return 0.0
-        return float(temiz)
-    except: return 0.0
 
 # --- SAYFALAR ---
 
@@ -142,29 +143,28 @@ if secim == "📊 Canlı Portföy":
         genel_toplam_deger = 0
         genel_toplam_maliyet = 0
         
-        my_bar = st.progress(0, text="Veriler güncelleniyor...")
-        toplam_hisse_sayisi = len(df['Hisse Adı'].unique())
-        sayac = 0
+        my_bar = st.progress(0, text="Analiz ediliyor...")
+        hisseler = df['Hisse Adı'].unique()
+        toplam_sayi = len(hisseler)
         
-        for sembol in df['Hisse Adı'].unique():
-            sayac += 1
-            my_bar.progress(int((sayac / toplam_hisse_sayisi) * 100), text=f"{sembol} verisi çekiliyor...")
+        for i, sembol in enumerate(hisseler):
+            my_bar.progress(int(((i+1) / toplam_sayi) * 100), text=f"{sembol} verisi çekiliyor...")
             
             temp_df = df[df['Hisse Adı'] == sembol]
             
-            # Sayı temizliği
-            temp_df['Lot'] = temp_df['Lot'].apply(sayi_temizle)
-            temp_df['Fiyat'] = temp_df['Fiyat'].apply(sayi_temizle)
-            
             alis = temp_df[temp_df['İşlem'] == 'Alış']
             satis = temp_df[temp_df['İşlem'] == 'Satış']
+            
+            # Artık bunlar kesinlikle SAYI olduğu için matematik işlemi yapar
             net_lot = alis['Lot'].sum() - satis['Lot'].sum()
             
             if net_lot > 0:
                 toplam_maliyet = (alis['Lot'] * alis['Fiyat']).sum()
-                ort_maliyet = toplam_maliyet / alis['Lot'].sum() if alis['Lot'].sum() > 0 else 0
+                # Bölme hatası olmasın diye kontrol
+                toplam_alis_lot = alis['Lot'].sum()
+                ort_maliyet = toplam_maliyet / toplam_alis_lot if toplam_alis_lot > 0 else 0
                 
-                # AKILLI VERİ ÇEKME
+                # Canlı Veri
                 guncel_fiyat, sirket_adi = veri_getir_ozel(sembol)
                 
                 veri_durumu = "✅ Canlı"
@@ -215,44 +215,33 @@ elif secim == "🚀 Halka Arzlar":
         arz_df = df[df['Halka Arz'].astype(str).str.upper() == 'TRUE']
         if not arz_df.empty: st.dataframe(arz_df, use_container_width=True)
         else: st.info("Kayıt yok.")
-    else: st.info("Veri yok.")
 
 # 3. ANALİZ
 elif secim == "🧠 Portföy Analizi":
     st.header("🧠 Yapay Zeka Risk Analizi")
     if st.button("Analizi Başlat", use_container_width=True):
-        st.info("Analiz başlatılıyor...")
         if not df.empty:
-            df_analiz = df.copy()
-            df_analiz['Fiyat'] = df_analiz['Fiyat'].apply(sayi_temizle)
-            df_analiz['Lot'] = df_analiz['Lot'].apply(sayi_temizle)
-            df_analiz['Tutar'] = df_analiz['Fiyat'] * df_analiz['Lot']
-            st.bar_chart(df_analiz, x="Hisse Adı", y="Tutar")
+            df['Tutar'] = df['Fiyat'] * df['Lot']
+            st.bar_chart(df, x="Hisse Adı", y="Tutar")
         else:
             st.warning("Veri yok.")
 
-# 4. İŞLEM EKLE (GLOBAL DESTEKLİ)
+# 4. İŞLEM EKLE
 elif secim == "➕ İşlem Ekle":
     st.header("Yeni Yatırım Ekle")
-    st.info("💡 İPUCU: Borsa İstanbul için 'THYAO', ABD için 'AAPL', Kripto için 'BTC-USD' yazabilirsiniz.")
-    
-    if 'otomatik_fiyat' not in st.session_state:
-        st.session_state.otomatik_fiyat = 0.0
+    if 'otomatik_fiyat' not in st.session_state: st.session_state.otomatik_fiyat = 0.0
 
     col1, col2 = st.columns(2)
     with col1:
-        hisse = st.text_input("Hisse Kodu (Örn: ASELS, AAPL, BTC-USD)").upper()
-        if st.button("⚡ Anlık Fiyatı Getir"):
+        hisse = st.text_input("Hisse Kodu (Örn: ASELS, AAPL)").upper()
+        if st.button("⚡ Fiyat Getir"):
             if hisse:
-                with st.spinner("Dünya piyasaları taranıyor..."):
-                    gelen_fiyat, gelen_isim = veri_getir_ozel(hisse)
-                    if gelen_fiyat:
-                        st.session_state.otomatik_fiyat = float(gelen_fiyat)
-                        st.success(f"✅ {gelen_isim}: {gelen_fiyat}")
-                    else:
-                        st.error("Fiyat bulunamadı.")
-            else:
-                st.warning("Hisse kodu giriniz.")
+                with st.spinner("Aranıyor..."):
+                    gf, gi = veri_getir_ozel(hisse)
+                    if gf:
+                        st.session_state.otomatik_fiyat = float(gf)
+                        st.success(f"✅ {gi}: {gf}")
+                    else: st.error("Bulunamadı.")
         islem = st.selectbox("İşlem", ["Alış", "Satış"])
         tarih = st.date_input("Tarih", datetime.now()).strftime("%Y-%m-%d")
 
@@ -262,17 +251,19 @@ elif secim == "➕ İşlem Ekle":
         halka_arz = st.checkbox("Halka Arz")
 
     if st.button("Kaydet", use_container_width=True):
-        if hisse and lot > 0 and fiyat > 0:
+        if hisse and lot>0 and fiyat>0:
             try:
+                # Veriyi kaydederken virgül varsa noktaya çevirip sayı olarak atıyoruz
                 temiz_hisse = hisse.strip().upper()
-                temiz_fiyat = float(str(fiyat).replace(',', '.'))
+                # Burada da temizlik yapıyoruz
+                temiz_fiyat = str(fiyat).replace(',', '.')
+                
                 yeni_veri = [str(tarih), temiz_hisse, islem, lot, temiz_fiyat, str(halka_arz).upper()]
                 sheet.append_row(yeni_veri)
-                st.success(f"✅ {temiz_hisse} başarıyla kaydedildi!")
+                st.success("✅ Kaydedildi!")
                 st.session_state.otomatik_fiyat = 0.0
             except Exception as e: st.error(f"Hata: {e}")
-        else:
-            st.warning("Eksik bilgi girdiniz.")
+        else: st.warning("Eksik bilgi.")
 
 # 5. GEÇMİŞ
 elif secim == "📝 İşlem Geçmişi":
