@@ -10,24 +10,45 @@ import plotly.graph_objects as go
 import requests
 import xml.etree.ElementTree as ET
 import streamlit.components.v1 as components
-from email.utils import parsedate_to_datetime # 🕒 Tarihleri sıralamak için gerekli
+from email.utils import parsedate_to_datetime
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="Yatırımcı Pro V11.2", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Yatırımcı Pro V11.5", layout="wide", initial_sidebar_state="expanded")
 
-# --- 2. TASARIM ---
+# --- 2. TASARIM VE RENKLER ---
+MAIN_BG = "#0b121f"  # Logodaki koyu lacivert/siyah arka planla uyumlu
+SIDEBAR_BG = "#162030" 
+ACCENT_COLOR = "#38ef7d" # Logodaki parlak yeşil
+
 st.markdown(
-    """
+    f"""
     <style>
-    .stApp {background-color: #0E1117; background-image: linear-gradient(to right, #0f2027, #203a43, #2c5364);}
-    [data-testid="stSidebar"] {background-color: #1c1c1e; border-right: 1px solid #333;}
-    html, body, [class*="css"] {font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #E0E0E0;}
-    .stButton>button {background-image: linear-gradient(19deg, #F4D03F 0%, #16A085 100%); color: white; border: none; border-radius: 10px; width: 100%;}
-    [data-testid="stMetricValue"] {font-size: 1.4rem !important;}
-    div[data-testid="stMetric"] {background-color: rgba(255,255,255,0.05); padding: 10px; border-radius: 10px; text-align: center; border: 1px solid rgba(255,255,255,0.1);}
+    /* Ana Arka Plan */
+    .stApp {{
+        background-color: {MAIN_BG};
+        background-image: radial-gradient(at 50% 0%, rgba(56, 239, 125, 0.1) 0, transparent 50%);
+    }}
     
-    .stButton button[kind="primary"] {background-image: linear-gradient(to right, #11998e, #38ef7d) !important; color: white !important;}
-    .stButton button[kind="secondary"] {background-image: linear-gradient(to right, #cb2d3e, #ef473a) !important; color: white !important;}
+    /* Yan Menü */
+    [data-testid="stSidebar"] {{
+        background-color: {SIDEBAR_BG};
+        border-right: 1px solid rgba(255,255,255,0.05);
+    }}
+    
+    /* Metrik Kartları */
+    div[data-testid="stMetric"] {{
+        background-color: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(56, 239, 125, 0.2); /* Yeşil çerçeve */
+        border-radius: 15px;
+        padding: 15px;
+    }}
+
+    /* Butonlar */
+    .stButton>button {{
+        border-radius: 12px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }}
     </style>
     """, unsafe_allow_html=True
 )
@@ -44,7 +65,6 @@ def get_sheets():
             st.stop()
         creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], ['https://www.googleapis.com/auth/spreadsheets'])
         client = gspread.authorize(creds)
-        # 👇 LİNKİ BURAYA YAPIŞTIR 👇
         sheet_url = "https://docs.google.com/spreadsheets/d/1ijPoTKNsXZBMxdRdMa7cpEhbSYt9kMwoqf5nZFNi7S8/edit?gid=0#gid=0"
         spreadsheet = client.open_by_url(sheet_url)
         return spreadsheet.worksheet("Islemler"), spreadsheet.worksheet("Uyeler"), spreadsheet.worksheet("Notlar")
@@ -55,7 +75,7 @@ def get_sheets():
 try:
     ws_islemler, ws_uyeler, ws_notlar = get_sheets()
 except:
-    st.error("Lütfen Google Sheet dosyanıza 'Notlar' adında yeni bir sayfa açtığınızdan emin olun.")
+    st.error("Google Sheet hatası! 'Notlar' sayfası olduğundan emin olun.")
     st.stop()
 
 # --- 5. YARDIMCI FONKSİYONLAR ---
@@ -63,7 +83,6 @@ def zorla_sayi_yap(deger):
     try:
         metin = str(deger).strip().replace("TL", "").replace("$", "").replace(" ", "")
         if "," in metin: metin = metin.replace(".", "").replace(",", ".")
-        elif metin.count(".") > 1: metin = metin.replace(".", "")
         return float(metin)
     except: return 0.0
 
@@ -93,52 +112,30 @@ def veri_getir_ozel(hisse_kodu):
 def piyasa_verileri_getir():
     return ['THYAO.IS', 'GARAN.IS', 'ASELS.IS', 'SASA.IS', 'EREGL.IS', 'TUPRS.IS', 'FROTO.IS', 'KCHOL.IS', 'SISE.IS', 'BIMAS.IS', 'AKBNK.IS', 'HEKTS.IS', 'PETKM.IS', 'KONTR.IS', 'ASTOR.IS']
 
-# 🔥 GÜNCELLENEN HABER MOTORU (TARİH SIRALAMALI) 🔥
 @st.cache_data(ttl=3600)
 def halka_arz_haberleri():
     url = "https://news.google.com/rss/search?q=Halka+Arz+Takvimi+SPK+Onayı&hl=tr&gl=TR&ceid=TR:tr"
-    
     try:
         resp = requests.get(url, timeout=5)
         root = ET.fromstring(resp.content)
-        
         haberler = []
-        for item in root.findall('./channel/item'): # Hepsini al, sonra filtrele
+        for item in root.findall('./channel/item'):
             title = item.find('title').text
             link = item.find('link').text
             pubDate = item.find('pubDate').text
-            
-            # Tarihi Python objesine çevir (Sıralama için)
-            try:
-                dt_obj = parsedate_to_datetime(pubDate)
-            except:
-                dt_obj = datetime.now() # Hata verirse şu anı al
-
-            # Kaynak ismi ayıklama
+            try: dt_obj = parsedate_to_datetime(pubDate)
+            except: dt_obj = datetime.now()
             source = "Google News"
             clean_title = title
             if "-" in title:
                 parts = title.rsplit("-", 1)
                 clean_title = parts[0].strip()
                 source = parts[1].strip()
-            
-            # Görünen tarih formatı
             date_str = dt_obj.strftime("%d.%m.%Y %H:%M")
-
-            haberler.append({
-                'title': clean_title,
-                'link': link,
-                'source': source,
-                'date_str': date_str,
-                'dt_obj': dt_obj # Sıralama anahtarı
-            })
-        
-        # 🕒 TARİHE GÖRE SIRALA (YENİDEN ESKİYE)
+            haberler.append({'title': clean_title, 'link': link, 'source': source, 'date_str': date_str, 'dt_obj': dt_obj})
         haberler.sort(key=lambda x: x['dt_obj'], reverse=True)
-        
-        return haberler[:10] # En yeni 10 taneyi döndür
-    except Exception:
-        return []
+        return haberler[:10]
+    except Exception: return []
 
 def portfoy_hesapla(df):
     if df.empty: return {}, 0.0
@@ -170,26 +167,15 @@ def google_haberleri_getir(sembol):
             title = item.find('title').text
             link = item.find('link').text
             pubDate = item.find('pubDate').text
-            
             try: dt_obj = parsedate_to_datetime(pubDate)
             except: dt_obj = datetime.now()
-            
             if "-" in title:
                 kaynak = title.split("-")[-1].strip()
                 baslik_temiz = "-".join(title.split("-")[:-1]).strip()
             else:
                 kaynak = "Google News"
                 baslik_temiz = title
-            
-            haberler.append({
-                'title': baslik_temiz, 
-                'link': link, 
-                'publisher': kaynak, 
-                'time': dt_obj.strftime("%d.%m %H:%M"),
-                'dt_obj': dt_obj
-            })
-        
-        # 🕒 SIRALA
+            haberler.append({'title': baslik_temiz, 'link': link, 'publisher': kaynak, 'time': dt_obj.strftime("%d.%m %H:%M"), 'dt_obj': dt_obj})
         haberler.sort(key=lambda x: x['dt_obj'], reverse=True)
         return haberler[:5]
     except Exception: return []
@@ -200,14 +186,17 @@ def hisse_performans_analizi(sembol):
     if hist.empty: return None, None, None
     suan = hist['Close'].iloc[-1]
     def degisim(gun): return ((suan - hist['Close'].iloc[-gun-1]) / hist['Close'].iloc[-gun-1] * 100) if len(hist) > gun else 0.0
-    
-    # Haberleri çek ve sırala
-    haberler = google_haberleri_getir(sembol)
-    
+    haberler = ticker.news
+    if not haberler: haberler = google_haberleri_getir(sembol)
+    else:
+        yeni_haberler = []
+        for h in haberler:
+            yeni_haberler.append({'title': h.get('title', ''), 'link': h.get('link', '#'), 'publisher': h.get('publisher', 'Yahoo'), 'time': ''})
+        haberler = yeni_haberler
     data = {"Fiyat": suan, "1 Gün": degisim(1), "1 Hafta": degisim(5), "3 Ay": degisim(63), "1 Yıl": degisim(252), "5 Yıl": degisim(1260)}
     return data, hist, haberler
 
-# --- 6. GİRİŞ SİSTEMİ ---
+# --- 6. GİRİŞ VE LOGO ---
 query_params = st.query_params
 url_kullanici = query_params.get("kullanici", None)
 url_giris = query_params.get("giris", None)
@@ -220,17 +209,24 @@ if 'giris_yapildi' not in st.session_state:
         st.session_state.giris_yapildi = False
         st.session_state.kullanici_adi = ""
 
-if 'secilen_hisse_detay' not in st.session_state: st.session_state.secilen_hisse_detay = None
-
 def giris_sayfasi():
-    st.markdown("<h1 style='text-align: center;'>🔐 Yatırımcı Pro V11.2</h1>", unsafe_allow_html=True)
+    # 🔥 LOGO BURADA: GİRİŞ EKRANI 🔥
+    col_logo1, col_logo2, col_logo3 = st.columns([1, 1, 1])
+    with col_logo2:
+        try:
+            st.image("logo.png", use_container_width=True)
+        except:
+            st.warning("Logo.png bulunamadı")
+    
+    st.markdown("<h3 style='text-align: center; color: #38ef7d;'>YATIRIMCI PRO</h3>", unsafe_allow_html=True)
+    
     t1, t2 = st.tabs(["Giriş", "Kayıt"])
     with t1:
         c1, c2, c3 = st.columns([1,2,1])
         with c2:
-            u = st.text_input("Kullanıcı")
+            u = st.text_input("Kullanıcı Adı")
             p = st.text_input("Şifre", type="password")
-            if st.button("Giriş"):
+            if st.button("Giriş Yap", type="primary"):
                 udf = pd.DataFrame(ws_uyeler.get_all_records())
                 if not udf.empty and u in udf['Kullanıcı Adı'].values:
                     if sifre_kontrol(p, udf[udf['Kullanıcı Adı']==u]['Şifre'].values[0]):
@@ -244,12 +240,12 @@ def giris_sayfasi():
     with t2:
         c1, c2, c3 = st.columns([1,2,1])
         with c2:
-            nu = st.text_input("Yeni Kullanıcı")
-            np = st.text_input("Yeni Şifre", type="password")
+            nu = st.text_input("Yeni Kullanıcı Adı")
+            np = st.text_input("Şifre Belirle", type="password")
             if st.button("Kayıt Ol"):
                 try:
                     ws_uyeler.append_row([nu, sifrele(np), datetime.now().strftime("%Y-%m-%d")])
-                    st.success("Kayıt Başarılı")
+                    st.success("Kayıt Başarılı! Giriş yapabilirsiniz.")
                 except: st.error("Hata")
 
 if not st.session_state.giris_yapildi:
@@ -269,6 +265,12 @@ except: df = pd.DataFrame()
 
 # --- MENÜ ---
 with st.sidebar:
+    # 🔥 LOGO BURADA: YAN MENÜ 🔥
+    try:
+        st.image("logo.png", use_container_width=True)
+    except:
+        st.write("YATIRIMCI PRO")
+        
     st.write(f"👤 **{st.session_state.kullanici_adi}**")
     def menu_reset(): st.session_state.secilen_hisse_detay = None
     secim = st.radio("Menü", ["📊 Canlı Portföy", "📈 Borsa Takip", "🚀 Halka Arzlar", "🧠 Portföy Analizi", "➕ İşlem Ekle", "📝 İşlem Geçmişi"], on_change=menu_reset)
@@ -285,23 +287,19 @@ def hisse_detay_goster(sembol):
     if st.button("⬅️ Listeye Geri Dön", use_container_width=True):
         st.session_state.secilen_hisse_detay = None
         st.rerun()
-    
-    with st.spinner(f"{sembol} verileri yükleniyor..."):
+    with st.spinner(f"{sembol} analiz ediliyor..."):
         fiyat, isim, tam_kod, degisim = veri_getir_ozel(sembol)
         analiz, hist_data, haberler = hisse_performans_analizi(tam_kod)
-        
     if analiz:
         st.header(f"📈 {isim} ({tam_kod})")
         st.metric("Anlık Fiyat", f"{analiz['Fiyat']:.2f} ₺", delta=f"%{degisim:.2f}")
-        
         st.divider()
         st.subheader("🕯️ Teknik Grafik (6 Aylık)")
         if hist_data is not None and not hist_data.empty:
             hist_6mo = hist_data.tail(126) 
             fig = go.Figure(data=[go.Candlestick(x=hist_6mo.index, open=hist_6mo['Open'], high=hist_6mo['High'], low=hist_6mo['Low'], close=hist_6mo['Close'], name=tam_kod)])
-            fig.update_layout(xaxis_rangeslider_visible=False, height=400, margin=dict(l=20, r=20, t=20, b=20))
+            fig.update_layout(xaxis_rangeslider_visible=False, height=400, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='white'))
             st.plotly_chart(fig, use_container_width=True)
-        
         st.subheader("📊 Performans Karnesi")
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("1 Gün", f"%{analiz['1 Gün']:.2f}", delta=f"{analiz['1 Gün']:.2f}")
@@ -309,11 +307,10 @@ def hisse_detay_goster(sembol):
         c3.metric("3 Ay", f"%{analiz['3 Ay']:.2f}", delta=f"{analiz['3 Ay']:.2f}")
         c4.metric("1 Yıl", f"%{analiz['1 Yıl']:.2f}", delta=f"{analiz['1 Yıl']:.2f}")
         c5.metric("5 Yıl", f"%{analiz['5 Yıl']:.2f}", delta=f"{analiz['5 Yıl']:.2f}")
-        
         st.divider()
         col_al, col_sat = st.columns(2)
         with col_al:
-            al_lot = st.number_input("Alınacak Lot", min_value=1, key="detay_al_lot")
+            al_lot = st.number_input("Lot (Al)", min_value=1, key="detay_al_lot")
             if st.button("AL (Ekle)", key="detay_btn_al", type="primary"):
                 try:
                     tarih = datetime.now().strftime("%Y-%m-%d")
@@ -324,7 +321,7 @@ def hisse_detay_goster(sembol):
                     st.rerun()
                 except Exception as e: st.error(f"Hata: {e}")
         with col_sat:
-            sat_lot = st.number_input("Satılacak Lot", min_value=1, key="detay_sat_lot")
+            sat_lot = st.number_input("Lot (Sat)", min_value=1, key="detay_sat_lot")
             if st.button("SAT (Düş)", key="detay_btn_sat", type="secondary"):
                 try:
                     tarih = datetime.now().strftime("%Y-%m-%d")
@@ -334,7 +331,6 @@ def hisse_detay_goster(sembol):
                     time.sleep(1)
                     st.rerun()
                 except Exception as e: st.error(f"Hata: {e}")
-
         with st.expander("🎯 Hedef & Notlar"):
             not_df = pd.DataFrame(ws_notlar.get_all_records())
             mevcut_hedef, mevcut_not = 0.0, ""
@@ -350,7 +346,6 @@ def hisse_detay_goster(sembol):
                     ws_notlar.append_row([st.session_state.kullanici_adi, tam_kod, yeni_hedef, yeni_not])
                     st.success("Kaydedildi!")
                 except Exception as e: st.error(f"Hata: {e}")
-
         st.divider()
         st.subheader(f"📰 {isim} Gündem")
         if haberler:
@@ -390,7 +385,6 @@ else:
                 c1, c2 = st.columns(2)
                 c1.metric("Portföy Değeri", f"{eldekilerin_degeri:,.2f} ₺")
                 c2.metric("GENEL NET DURUM", f"{genel_net:,.2f} ₺", delta=f"{genel_net:,.2f}")
-                
                 st.divider()
                 with st.expander("⚡ Hızlı Al/Sat Paneli"):
                     secilen_hisse = st.selectbox("Hisse", aktifler, key="hzl_select")
@@ -420,7 +414,6 @@ else:
                                 time.sleep(1)
                                 st.rerun()
                             except Exception as e: st.error(f"Hata: {e}")
-                
                 st.divider()
                 with st.expander("🚨 Hesabımı Sıfırla"):
                     if st.button("⚠️ TÜM VERİLERİMİ SİL"): st.session_state.sifirlama_onay = True
@@ -464,13 +457,10 @@ else:
                         st.rerun()
                 else: st.write(f"{s}: --")
 
-    # 🔥 HALKA ARZ SAYFASI (GÜNCELLENDİ) 🔥
     elif secim == "🚀 Halka Arzlar":
         st.header("🚀 Halka Arzlar")
         st.info("Aşağıdaki veriler güncel haber akışlarından çekilmektedir.")
-        
         tab1, tab2 = st.tabs(["🔥 Güncel Gelişmeler", "📅 Takip Listem"])
-        
         with tab1:
             arz_haberleri = halka_arz_haberleri()
             if arz_haberleri:
@@ -483,13 +473,10 @@ else:
                         <span style="color:#aaa; font-size:12px;">📰 {h['source']} | 📅 {h['date_str']}</span>
                     </div>
                     """, unsafe_allow_html=True)
-            else:
-                st.warning("Şu an güncel halka arz haberi bulunamadı.")
-            
+            else: st.warning("Şu an güncel halka arz haberi bulunamadı.")
             st.divider()
             st.subheader("🌐 Canlı Tablo (Kaynak: Halkarz.com)")
             components.iframe("https://halkarz.com/", height=600, scrolling=True)
-
         with tab2:
             if not df.empty and 'Halka Arz' in df.columns:
                 arz = df[df['Halka Arz'].astype(str).str.upper() == 'TRUE']
