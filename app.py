@@ -78,10 +78,10 @@ if not st.session_state.giris_yapildi:
 
 # --- MENÜ ---
 with st.sidebar:
-    st.title("Yatırımcı v2.1")
-    secim = st.radio("Menü", ["📊 Güncel Portföy", "🚀 Halka Arzlar", "➕ İşlem Ekle", "📝 İşlem Geçmişi"])
-    if st.button("Yenile (Verileri Çek)"):
-        st.cache_data.clear()
+    st.divider()
+    if st.button("🔒 Çıkış Yap"):
+        st.session_state.giris_yapildi = False
+        st.query_params.clear() # URL'deki notu siler
         st.rerun()
 
 # --- SAYFA 1: PORTFÖY ---
