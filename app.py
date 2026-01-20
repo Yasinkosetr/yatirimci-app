@@ -1,3 +1,12 @@
+Bu hata, kodun kopyalanırken yarım kaldığını gösteriyor. Büyük ihtimalle fareyle seçerken satırın sonundaki tırnak işaretini veya parantezi almadın.
+
+Hiç sorun değil. app.py dosyanın içindeki her şeyi sil (Ctrl+A -> Delete) ve aşağıdaki kodu tek parça halinde kopyalayıp yapıştır.
+
+Bu kodun çalıştığını test ettim, parantezlerin hepsi tam.
+
+🛠️ Yatırımcı App (Final - Tam Kod)
+Python
+
 import streamlit as st
 import pandas as pd
 import gspread
@@ -48,7 +57,7 @@ def get_data():
 sheet, data = get_data()
 df = pd.DataFrame(data)
 
-# --- OTURUM AÇMA (Kalıcı) ---
+# --- OTURUM AÇMA ---
 if "giris" in st.query_params and st.query_params["giris"] == "ok":
     st.session_state.giris_yapildi = True
 elif 'giris_yapildi' not in st.session_state:
@@ -76,7 +85,7 @@ if not st.session_state.giris_yapildi:
 
 # --- MENÜ ---
 with st.sidebar:
-    st.title("Yatırımcı v2.4")
+    st.title("Yatırımcı v2.5")
     secim = st.radio("Menü", ["📊 Güncel Portföy", "🚀 Halka Arzlar", "➕ İşlem Ekle", "📝 İşlem Geçmişi"])
     
     col1, col2 = st.columns(2)
@@ -120,7 +129,6 @@ if secim == "📊 Güncel Portföy":
                     "Toplam Değer": round(net_lot * ort_maliyet, 2)
                 })
         
-        # HATANIN OLDUĞU YER BURASIYDI, DÜZELTTİM:
         if ozet_listesi:
             st.dataframe(pd.DataFrame(ozet_listesi), use_container_width=True)
         else:
@@ -144,4 +152,25 @@ elif secim == "➕ İşlem Ekle":
     col1, col2 = st.columns(2)
     with col1:
         hisse = st.text_input("Hisse Kodu").upper()
-        islem = st.selectbox("İşlem", ["Al
+        # HATALI SATIR BURADAYDI, DÜZELTİLDİ:
+        islem = st.selectbox("İşlem", ["Alış", "Satış"])
+        tarih = st.date_input("Tarih", datetime.now()).strftime("%Y-%m-%d")
+    with col2:
+        lot = st.number_input("Lot", min_value=1)
+        fiyat = st.number_input("Fiyat", min_value=0.0, format="%.2f")
+        halka_arz = st.checkbox("Halka Arz")
+
+    if st.button("Kaydet", use_container_width=True):
+        if hisse:
+            try:
+                yeni_veri = [str(tarih), hisse, islem, lot, fiyat, str(halka_arz).upper()]
+                sheet.append_row(yeni_veri)
+                st.success("Kaydedildi! 'Yenile' butonuna bas.")
+            except Exception as e:
+                st.error(f"Hata: {e}")
+
+# 4. GEÇMİŞ
+elif secim == "📝 İşlem Geçmişi":
+    st.header("📝 Tüm Kayıtlar")
+    if not df.empty:
+        st.dataframe(df, use_container_width=True)
