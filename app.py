@@ -6,10 +6,12 @@ from datetime import datetime, timedelta
 import yfinance as yf
 import time
 import hashlib
-import plotly.graph_objects as go # 🕯️ A ŞIKKI İÇİN GRAFİK KÜTÜPHANESİ
+import plotly.graph_objects as go
+import requests # Google News için gerekli
+import xml.etree.ElementTree as ET # Google News'i okumak için gerekli
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="Yatırımcı Pro V10.0", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Yatırımcı Pro V10.1", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. TASARIM ---
 st.markdown(
@@ -40,18 +42,14 @@ def get_sheets():
             st.stop()
         creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], ['https://www.googleapis.com/auth/spreadsheets'])
         client = gspread.authorize(creds)
-        
         # 👇 LİNKİ BURAYA YAPIŞTIR 👇
         sheet_url = "https://docs.google.com/spreadsheets/d/1ijPoTKNsXZBMxdRdMa7cpEhbSYt9kMwoqf5nZFNi7S8/edit?gid=0#gid=0"
-        
         spreadsheet = client.open_by_url(sheet_url)
-        # ARTIK 3 SAYFA ÇEKİYORUZ (NOTLAR EKLENDİ)
         return spreadsheet.worksheet("Islemler"), spreadsheet.worksheet("Uyeler"), spreadsheet.worksheet("Notlar")
     except Exception as e:
         st.error(f"Veri tabanı hatası: {e}")
         st.stop()
 
-# 3 Sayfayı Yükle
 try:
     ws_islemler, ws_uyeler, ws_notlar = get_sheets()
 except:
@@ -112,16 +110,61 @@ def portfoy_hesapla(df):
             mevcut['Adet'] = max(0, mevcut['Adet'] - a)
     return portfoy, gerceklesen
 
+# 🔥 YENİ HABER MOTORU (GOOGLE NEWS RSS) 🔥
+def google_haberleri_getir(sembol):
+    # Sembolü temizle (THYAO.IS -> THYAO)
+    kod = sembol.replace(".IS", "").split("-")[0]
+    
+    # RSS URL'si (Türkçe Haberler)
+    url = f"https://news.google.com/rss/search?q={kod}+hisse&hl=tr&gl=TR&ceid=TR:tr"
+    
+    try:
+        resp = requests.get(url, timeout=5)
+        root = ET.fromstring(resp.content)
+        
+        haberler = []
+        # İlk 5 haberi çek
+        for item in root.findall('./channel/item')[:5]:
+            title = item.find('title').text
+            link = item.find('link').text
+            pubDate = item.find('pubDate').text
+            # Kaynağı başlıktan ayıkla (Genelde "Başlık - Kaynak" şeklindedir)
+            if "-" in title:
+                kaynak = title.split("-")[-1].strip()
+                baslik_temiz = "-".join(title.split("-")[:-1]).strip()
+            else:
+                kaynak = "Google News"
+                baslik_temiz = title
+                
+            haberler.append({'title': baslik_temiz, 'link': link, 'publisher': kaynak, 'time': pubDate})
+            
+        return haberler
+    except Exception:
+        return []
+
 def hisse_performans_analizi(sembol):
     ticker = yf.Ticker(sembol)
     hist = ticker.history(period="5y")
-    if hist.empty: return None, None, None # Veri, Ticker Objesi, Haberler için
+    if hist.empty: return None, None, None
     suan = hist['Close'].iloc[-1]
     def degisim(gun): return ((suan - hist['Close'].iloc[-gun-1]) / hist['Close'].iloc[-gun-1] * 100) if len(hist) > gun else 0.0
     
-    # Haberleri Çek (B ŞIKKI)
+    # 🔥 HABERLERİ ÖNCE YAHOO'DAN DENE, YOKSA GOOGLE'A GİT
     haberler = ticker.news
-    
+    if not haberler or len(haberler) == 0:
+        haberler = google_haberleri_getir(sembol)
+    else:
+        # Yahoo verisi varsa formatı düzelt
+        yeni_haberler = []
+        for h in haberler:
+            yeni_haberler.append({
+                'title': h.get('title', 'Başlık Yok'),
+                'link': h.get('link', '#'),
+                'publisher': h.get('publisher', 'Yahoo Finance'),
+                'time': ''
+            })
+        haberler = yeni_haberler
+
     data = {"Fiyat": suan, "1 Gün": degisim(1), "1 Hafta": degisim(5), "3 Ay": degisim(63), "1 Yıl": degisim(252), "5 Yıl": degisim(1260)}
     return data, hist, haberler
 
@@ -141,7 +184,7 @@ if 'giris_yapildi' not in st.session_state:
 if 'secilen_hisse_detay' not in st.session_state: st.session_state.secilen_hisse_detay = None
 
 def giris_sayfasi():
-    st.markdown("<h1 style='text-align: center;'>🔐 Yatırımcı Pro V10</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center;'>🔐 Yatırımcı Pro V10.1</h1>", unsafe_allow_html=True)
     t1, t2 = st.tabs(["Giriş", "Kayıt"])
     with t1:
         c1, c2, c3 = st.columns([1,2,1])
@@ -198,44 +241,31 @@ with st.sidebar:
         st.query_params.clear()
         st.rerun()
 
-# =========================================================
-# 🔥 V10 FİNAL DETAY SAYFASI 🔥
-# =========================================================
+# --- HİSSE DETAY SAYFASI ---
 def hisse_detay_goster(sembol):
     if st.button("⬅️ Listeye Geri Dön", use_container_width=True):
         st.session_state.secilen_hisse_detay = None
         st.rerun()
     
-    with st.spinner(f"{sembol} verileri, haberleri ve grafikleri yükleniyor..."):
+    with st.spinner(f"{sembol} verileri ve haberleri yükleniyor..."):
         fiyat, isim, tam_kod, degisim = veri_getir_ozel(sembol)
         analiz, hist_data, haberler = hisse_performans_analizi(tam_kod)
         
     if analiz:
-        # BAŞLIK
         st.header(f"📈 {isim} ({tam_kod})")
         st.metric("Anlık Fiyat", f"{analiz['Fiyat']:.2f} ₺", delta=f"%{degisim:.2f}")
         
-        # 🕯️ A ŞIKKI: İNTERAKTİF MUM GRAFİĞİ (CANDLESTICK) 🕯️
+        # Grafik
         st.divider()
         st.subheader("🕯️ Teknik Grafik (6 Aylık)")
-        
         if hist_data is not None and not hist_data.empty:
-            # Son 6 ayı alalım
             hist_6mo = hist_data.tail(126) 
-            fig = go.Figure(data=[go.Candlestick(x=hist_6mo.index,
-                            open=hist_6mo['Open'],
-                            high=hist_6mo['High'],
-                            low=hist_6mo['Low'],
-                            close=hist_6mo['Close'],
-                            name=tam_kod)])
-            
+            fig = go.Figure(data=[go.Candlestick(x=hist_6mo.index, open=hist_6mo['Open'], high=hist_6mo['High'], low=hist_6mo['Low'], close=hist_6mo['Close'], name=tam_kod)])
             fig.update_layout(xaxis_rangeslider_visible=False, height=400, margin=dict(l=20, r=20, t=20, b=20))
             st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("Grafik verisi yüklenemedi.")
-
-        # PERFORMANS KUTULARI
-        st.subheader("📊 Performans Karnesi")
+        
+        # Performans
+        st.subheader("📊 Performans")
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("1 Gün", f"%{analiz['1 Gün']:.2f}", delta=f"{analiz['1 Gün']:.2f}")
         c2.metric("1 Hafta", f"%{analiz['1 Hafta']:.2f}", delta=f"{analiz['1 Hafta']:.2f}")
@@ -245,15 +275,14 @@ def hisse_detay_goster(sembol):
         
         st.divider()
         
-        # 🟢 HIZLI AL/SAT 🔴
+        # Al/Sat ve Notlar
         col_islem, col_hedef = st.columns([1, 1])
-        
         with col_islem:
             st.subheader("⚡ Hızlı İşlem")
             t_al, t_sat = st.tabs(["🟢 AL", "🔴 SAT"])
             with t_al:
                 al_lot = st.number_input("Lot", min_value=1, key="detay_al_lot")
-                if st.button("Portföye Ekle", key="detay_btn_al", type="primary", use_container_width=True):
+                if st.button("Ekle", key="detay_btn_al", type="primary", use_container_width=True):
                     try:
                         tarih = datetime.now().strftime("%Y-%m-%d")
                         f_str = str(analiz['Fiyat']).replace(',', '.')
@@ -264,7 +293,7 @@ def hisse_detay_goster(sembol):
                     except: st.error("Hata")
             with t_sat:
                 sat_lot = st.number_input("Lot", min_value=1, key="detay_sat_lot")
-                if st.button("Portföyden Düş", key="detay_btn_sat", type="secondary", use_container_width=True):
+                if st.button("Düş", key="detay_btn_sat", type="secondary", use_container_width=True):
                     try:
                         tarih = datetime.now().strftime("%Y-%m-%d")
                         f_str = str(analiz['Fiyat']).replace(',', '.')
@@ -274,45 +303,41 @@ def hisse_detay_goster(sembol):
                         st.rerun()
                     except: st.error("Hata")
 
-        # 🎯 C ŞIKKI: HEDEF FİYAT & NOTLAR 📒
         with col_hedef:
             st.subheader("🎯 Hedef & Notlar")
-            
-            # Mevcut notu bulmaya çalış (Basit yöntem: Tümünü çekip sonuncuyu al)
-            # Not: Büyük veride yavaşlayabilir ama bireysel kullanım için uygundur.
             not_df = pd.DataFrame(ws_notlar.get_all_records())
-            mevcut_hedef = 0.0
-            mevcut_not = ""
-            
+            mevcut_hedef, mevcut_not = 0.0, ""
             if not not_df.empty:
-                # Kullanıcı ve Hisse Filtresi
                 filtre = not_df[(not_df['Kullanıcı'] == st.session_state.kullanici_adi) & (not_df['Hisse'] == tam_kod)]
                 if not filtre.empty:
                     mevcut_hedef = float(filtre.iloc[-1]['Hedef'])
                     mevcut_not = filtre.iloc[-1]['Not']
-
             yeni_hedef = st.number_input("Hedef Fiyatım", value=mevcut_hedef, step=0.1)
-            yeni_not = st.text_area("Bu hisseyle ilgili notum:", value=mevcut_not)
-            
-            if st.button("💾 Notu Kaydet", use_container_width=True):
+            yeni_not = st.text_area("Notum:", value=mevcut_not)
+            if st.button("Kaydet", use_container_width=True):
                 try:
-                    # Yeni satır ekle (Eskisini silmek yerine tarihçe tutuyoruz)
                     ws_notlar.append_row([st.session_state.kullanici_adi, tam_kod, yeni_hedef, yeni_not])
                     st.success("Kaydedildi!")
                 except Exception as e: st.error(f"Hata: {e}")
 
-        # 📰 B ŞIKKI: HABER AKIŞI 📰
+        # 🔥 HABERLER BÖLÜMÜ 🔥
         st.divider()
-        st.subheader(f"📰 {isim} Hakkında Son Haberler")
+        st.subheader(f"📰 {isim} Gündem (Google News)")
+        
         if haberler:
-            for h in haberler[:3]: # Son 3 haber
-                t_baslik = h.get('title', 'Başlık Yok')
-                t_link = h.get('link', '#')
-                t_yayin = h.get('publisher', 'Bilinmiyor')
-                st.markdown(f"**🔗 [{t_baslik}]({t_link})**")
-                st.caption(f"Kaynak: {t_yayin}")
+            for h in haberler:
+                # Haber Kartı Tasarımı
+                st.markdown(f"""
+                <div style="background-color:rgba(255,255,255,0.05); padding:10px; border-radius:5px; margin-bottom:10px;">
+                    <a href="{h['link']}" target="_blank" style="text-decoration:none; color:#4DA6FF; font-weight:bold; font-size:16px;">
+                        {h['title']}
+                    </a>
+                    <br>
+                    <span style="color:#aaa; font-size:12px;">📢 {h['publisher']} | 🕒 {h.get('time', '')}</span>
+                </div>
+                """, unsafe_allow_html=True)
         else:
-            st.info("Bu hisse için güncel haber bulunamadı.")
+            st.info("Güncel haber bulunamadı.")
 
     else: st.error("Veri yok.")
 
@@ -320,7 +345,6 @@ def hisse_detay_goster(sembol):
 if st.session_state.secilen_hisse_detay:
     hisse_detay_goster(st.session_state.secilen_hisse_detay)
 else:
-    # 1. CANLI PORTFÖY
     if secim == "📊 Canlı Portföy":
         st.header("📊 Canlı Portföy")
         if not df.empty:
@@ -415,7 +439,7 @@ else:
                             toplam += val
                             ozet.append({"Hisse": k, "Değer": val})
                     st.bar_chart(pd.DataFrame(ozet), x="Hisse", y="Değer")
-                    st.info("Dağılım yukarıdaki gibidir. Riski dağıtmak için tek hisseye %50'den fazla bağlama.")
+                    st.info("Dağılım analizi tamamlandı.")
         else: st.warning("Veri yok.")
 
     elif secim == "➕ İşlem Ekle":
