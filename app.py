@@ -41,21 +41,40 @@ if 'giris_yapildi' not in st.session_state:
     st.session_state.giris_yapildi = False
 
 def giris_ekrani():
+    # --- OTURUM AÇMA (Sayfa Yenilense de Kalıcı) ---
+
+# 1. Önce URL'e bak: Daha önce giriş yapılmış mı?
+# Eğer adres çubuğunda '?giris=ok' yazıyorsa direkt içeri al
+if "giris" in st.query_params and st.query_params["giris"] == "ok":
+    st.session_state.giris_yapildi = True
+elif 'giris_yapildi' not in st.session_state:
+    st.session_state.giris_yapildi = False
+
+def giris_ekrani():
     st.markdown("<h1 style='text-align: center;'>🔐 Yatırımcı Girişi</h1>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
+        st.info("Kullanıcı: admin | Şifre: 1234") # Unutma diye buraya yazdım, istersen sil
         kullanici = st.text_input("Kullanıcı Adı")
         sifre = st.text_input("Şifre", type="password")
+        
         if st.button("Giriş Yap", use_container_width=True):
             if kullanici == "admin" and sifre == "1234":
                 st.session_state.giris_yapildi = True
+                # SİHİRLİ KOD BURASI: Adres çubuğuna 'giris=ok' yazar
+                st.query_params["giris"] = "ok"
                 st.rerun()
             else:
                 st.error("Hatalı giriş!")
 
+# Eğer giriş yapılmadıysa ekranı göster ve durdur
 if not st.session_state.giris_yapildi:
     giris_ekrani()
     st.stop()
+
+# --- MENÜYE "ÇIKIŞ YAP" BUTONU GÜNCELLEMESİ ---
+# Aşağıdaki menü kısmında "Çıkış Yap" butonunu da şöyle güncellemelisin:
+# (Bunu sidebar kodunun içine koyacaksın)
 
 # --- MENÜ ---
 with st.sidebar:
