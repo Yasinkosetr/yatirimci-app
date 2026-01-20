@@ -4,6 +4,49 @@ from datetime import datetime
 
 # --- AYARLAR ---
 st.set_page_config(page_title="Yatırımcı Pro", layout="wide", initial_sidebar_state="expanded")
+# --- TASARIM VE GÖRSELLEŞTİRME (CSS) ---
+st.markdown(
+    """
+    <style>
+    /* 1. Ana Arka Plan Rengi (Koyu Lacivert - Finans Teması) */
+    .stApp {
+        background-color: #0E1117;
+        background-image: linear-gradient(to right, #0f2027, #203a43, #2c5364);
+    }
+
+    /* 2. Yan Menü (Sidebar) Tasarımı */
+    [data-testid="stSidebar"] {
+        background-color: #1c1c1e;
+        border-right: 1px solid #333;
+    }
+
+    /* 3. Yazı Tipleri (Font) - Google Font benzeri */
+    html, body, [class*="css"] {
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        color: #E0E0E0; /* Yazı rengi: Açık Gri */
+    }
+
+    /* 4. Butonları Güzelleştirme */
+    .stButton>button {
+        background-color: #F4D03F; /* Altın Sarısı */
+        background-image: linear-gradient(19deg, #F4D03F 0%, #16A085 100%);
+        color: white;
+        border-radius: 10px;
+        border: none;
+        font-weight: bold;
+        transition: 0.3s;
+    }
+    .stButton>button:hover {
+        transform: scale(1.05); /* Üzerine gelince büyür */
+    }
+
+    /* 5. Tablo Başlıkları */
+    thead tr th:first-child {display:none}
+    tbody th {display:none}
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 # --- 0️⃣ GÜVENLİK VE OTURUM AÇMA (Login Sistemi) ---
 if 'giris_yapildi' not in st.session_state:
