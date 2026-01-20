@@ -8,7 +8,7 @@ import time
 import hashlib
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="Yatırımcı Pro V9.4", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Yatırımcı Pro V9.5", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. TASARIM ---
 st.markdown(
@@ -21,7 +21,6 @@ st.markdown(
     [data-testid="stMetricValue"] {font-size: 1.4rem !important;}
     div[data-testid="stMetric"] {background-color: rgba(255,255,255,0.05); padding: 10px; border-radius: 10px; text-align: center; border: 1px solid rgba(255,255,255,0.1);}
     
-    /* Özel Buton Renkleri */
     .stButton button[kind="primary"] {background-image: linear-gradient(to right, #11998e, #38ef7d) !important; color: white !important;}
     .stButton button[kind="secondary"] {background-image: linear-gradient(to right, #cb2d3e, #ef473a) !important; color: white !important;}
     </style>
@@ -160,10 +159,20 @@ try:
     else: df = pd.DataFrame()
 except: df = pd.DataFrame()
 
-# --- MENÜ ---
+# --- MENÜ DÜZENLEMESİ (SORUN BURADAYDI) ---
 with st.sidebar:
     st.write(f"👤 **{st.session_state.kullanici_adi}**")
-    secim = st.radio("Menü", ["📊 Canlı Portföy", "📈 Borsa Takip", "🚀 Halka Arzlar", "🧠 Portföy Analizi", "➕ İşlem Ekle", "📝 İşlem Geçmişi"])
+    
+    # 🔥 FIX: Menü değişince hisse detayını sıfırlayan fonksiyon
+    def menu_reset():
+        st.session_state.secilen_hisse_detay = None
+        
+    secim = st.radio(
+        "Menü", 
+        ["📊 Canlı Portföy", "📈 Borsa Takip", "🚀 Halka Arzlar", "🧠 Portföy Analizi", "➕ İşlem Ekle", "📝 İşlem Geçmişi"],
+        on_change=menu_reset # Menüye tıklandığında hafızayı temizler
+    )
+    
     st.divider()
     if st.button("🔄 Yenile"): st.cache_data.clear(); st.rerun()
     if st.button("🔒 Çıkış"): 
@@ -173,7 +182,11 @@ with st.sidebar:
 
 # --- HİSSE DETAY SAYFASI ---
 def hisse_detay_goster(sembol):
-    st.button("⬅️ Geri Dön", on_click=lambda: st.session_state.update(secilen_hisse_detay=None))
+    # Geri dön butonu
+    if st.button("⬅️ Listeye Geri Dön", use_container_width=True):
+        st.session_state.secilen_hisse_detay = None
+        st.rerun()
+        
     with st.spinner(f"{sembol} analiz ediliyor..."):
         fiyat, isim, tam_kod, degisim = veri_getir_ozel(sembol)
         analiz = hisse_performans_analizi(tam_kod)
@@ -281,7 +294,6 @@ else:
                                 st.rerun()
                             except Exception as e: st.error(f"Hata: {e}")
 
-                # 🔥🔥🔥 SIFIRLAMA BUTONU BURADA 🔥🔥🔥
                 st.divider()
                 with st.expander("🚨 Hesabımı Sıfırla (Geri Dönüş Yok)"):
                     st.write("Bu işlem SADECE SENİN tüm alım satım geçmişini siler. Bakiye sıfırlanır.")
@@ -294,19 +306,13 @@ else:
                     with k1:
                         if st.button("✅ EVET, SİL", type="primary"):
                             try:
-                                # Tüm veriyi çek
                                 all_rows = ws_islemler.get_all_values()
                                 header = all_rows[0]
                                 data_rows = all_rows[1:]
-                                
-                                # Sadece bu kullanıcının OLMADIĞI satırları tut (Başkalarını silme)
                                 keep_rows = [row for row in data_rows if row[0] != st.session_state.kullanici_adi]
-                                
-                                # Temizle ve geri yükle
                                 ws_islemler.clear()
                                 ws_islemler.append_row(header)
                                 if keep_rows: ws_islemler.append_rows(keep_rows)
-                                
                                 st.success("Hesabınız tertemiz oldu.")
                                 st.session_state.sifirlama_onay = False
                                 time.sleep(2)
