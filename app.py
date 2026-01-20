@@ -8,7 +8,7 @@ import time
 import hashlib
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="Yatırımcı Pro V7.1", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Yatırımcı Pro V8.0", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. TASARIM ---
 st.markdown(
@@ -90,6 +90,19 @@ def veri_getir_ozel(hisse_kodu):
     except: pass
     return None, sembol
 
+# Toplu Veri Çekme (Piyasa Ekranı İçin)
+@st.cache_data(ttl=300) # 5 dakikada bir yeniler
+def piyasa_verileri_getir():
+    # Popüler 15 Hisse
+    semboller = ['THYAO.IS', 'GARAN.IS', 'ASELS.IS', 'SASA.IS', 'EREGL.IS', 
+                 'TUPRS.IS', 'FROTO.IS', 'KCHOL.IS', 'SISE.IS', 'BIMAS.IS', 
+                 'AKBNK.IS', 'HEKTS.IS', 'PETKM.IS', 'KONTR.IS', 'ASTOR.IS']
+    
+    veriler = []
+    # Toplu indirme daha hızlıdır ama detay için tek tek de bakabiliriz.
+    # Burada kullanıcı deneyimi için tek tek progress bar ile göstereceğiz.
+    return semboller
+
 def portfoy_hesapla(df):
     if df.empty: return {}, 0.0
     if 'Tarih' in df.columns:
@@ -122,16 +135,14 @@ def portfoy_hesapla(df):
             
     return portfoy, gerceklesen_kar_zarar
 
-# --- 6. GİRİŞ VE KAYIT SİSTEMİ ---
+# --- 6. GİRİŞ SİSTEMİ ---
 if 'giris_yapildi' not in st.session_state: st.session_state.giris_yapildi = False
 if 'kullanici_adi' not in st.session_state: st.session_state.kullanici_adi = ""
 
 def giris_sayfasi():
     st.markdown("<h1 style='text-align: center;'>🔐 Yatırımcı Pro Giriş</h1>", unsafe_allow_html=True)
-    
     tab1, tab2 = st.tabs(["Giriş Yap", "Hızlı Kayıt Ol"])
     
-    # --- GİRİŞ YAP ---
     with tab1:
         col1, col2, col3 = st.columns([1,2,1])
         with col2:
@@ -140,7 +151,6 @@ def giris_sayfasi():
             if st.button("Giriş Yap", use_container_width=True):
                 uyeler = ws_uyeler.get_all_records()
                 uye_df = pd.DataFrame(uyeler)
-                
                 if not uye_df.empty and kullanici in uye_df['Kullanıcı Adı'].values:
                     kayitli_sifre = uye_df[uye_df['Kullanıcı Adı'] == kullanici]['Şifre'].values[0]
                     if sifre_kontrol(sifre, kayitli_sifre):
@@ -149,26 +159,20 @@ def giris_sayfasi():
                         st.success(f"Hoş geldin {kullanici}!")
                         time.sleep(1)
                         st.rerun()
-                    else:
-                        st.error("Hatalı şifre!")
-                else:
-                    st.error("Kullanıcı bulunamadı.")
+                    else: st.error("Hatalı şifre!")
+                else: st.error("Kullanıcı bulunamadı.")
 
-    # --- KAYIT OL (SADELEŞTİRİLMİŞ) ---
     with tab2:
         col1, col2, col3 = st.columns([1,2,1])
         with col2:
             st.info("Kayıt olmak için sadece Kullanıcı Adı ve Şifre yeterlidir.")
             yeni_kullanici = st.text_input("Belirleyeceğiniz Kullanıcı Adı")
-            # Email/Telefon kısmı kaldırıldı
             yeni_sifre = st.text_input("Belirleyeceğiniz Şifre", type="password")
             yeni_sifre_tekrar = st.text_input("Şifre Tekrar", type="password")
             
             if st.button("Kayıt Ol", use_container_width=True):
-                if yeni_sifre != yeni_sifre_tekrar:
-                    st.error("Şifreler uyuşmuyor!")
-                elif not yeni_kullanici or not yeni_sifre:
-                    st.error("Bilgiler boş olamaz.")
+                if yeni_sifre != yeni_sifre_tekrar: st.error("Şifreler uyuşmuyor!")
+                elif not yeni_kullanici or not yeni_sifre: st.error("Bilgiler boş olamaz.")
                 else:
                     uyeler = ws_uyeler.get_all_records()
                     uye_df = pd.DataFrame(uyeler)
@@ -178,18 +182,16 @@ def giris_sayfasi():
                         try:
                             tarih = datetime.now().strftime("%Y-%m-%d")
                             sifreli = sifrele(yeni_sifre)
-                            # Kayıt: Kullanıcı Adı, Şifre, Tarih (Email yok)
                             ws_uyeler.append_row([yeni_kullanici, sifreli, tarih])
                             st.success("Kayıt başarılı! Şimdi giriş yapabilirsiniz.")
-                        except Exception as e:
-                            st.error(f"Kayıt hatası: {e}")
+                        except Exception as e: st.error(f"Kayıt hatası: {e}")
 
 if not st.session_state.giris_yapildi:
     giris_sayfasi()
     st.stop()
 
 # ==========================================
-# İÇERİK (GİRİŞ YAPAN KULLANICI)
+# İÇERİK
 # ==========================================
 
 tum_veriler = ws_islemler.get_all_records()
@@ -206,8 +208,9 @@ else:
 # --- MENÜ ---
 with st.sidebar:
     st.write(f"👤 **Aktif Üye:** {st.session_state.kullanici_adi}")
-    st.title("Yatırımcı v7.1")
-    secim = st.radio("Menü", ["📊 Canlı Portföy", "🚀 Halka Arzlar", "🧠 Portföy Analizi", "➕ İşlem Ekle", "📝 İşlem Geçmişi"])
+    st.title("Yatırımcı v8.0")
+    # YENİ MENÜ EKLENDİ 👇
+    secim = st.radio("Menü", ["📊 Canlı Portföy", "📈 Borsa Takip (Yeni)", "🚀 Halka Arzlar", "🧠 Portföy Analizi", "➕ İşlem Ekle", "📝 İşlem Geçmişi"])
     st.divider()
     if st.button("🔄 Yenile"):
         st.cache_data.clear()
@@ -323,7 +326,6 @@ if secim == "📊 Canlı Portföy":
                     ws_islemler.clear()
                     ws_islemler.append_row(header)
                     if new_rows: ws_islemler.append_rows(new_rows)
-                    
                     st.success("Hesabınız sıfırlandı.")
                     st.session_state.sifirlama_onay = False
                     time.sleep(2)
@@ -332,6 +334,46 @@ if secim == "📊 Canlı Portföy":
 
     else:
         st.info("Henüz işlem yapmadınız.")
+
+# 🔥 YENİ SAYFA: BORSA TAKİP (PİYASA EKRANI) 🔥
+elif secim == "📈 Borsa Takip (Yeni)":
+    st.header("📈 Canlı Borsa Ekranı")
+    
+    # 1. ARAMA MOTORU
+    st.subheader("🔍 Hisse Ara")
+    col_ara1, col_ara2 = st.columns([3, 1])
+    with col_ara1:
+        aranan = st.text_input("Sembol Girin (Örn: GARAN, AAPL, BTC-USD)", placeholder="BIST, ABD veya Kripto arayın...")
+    
+    # Arama Sonucu
+    if aranan:
+        with st.spinner(f"{aranan} aranıyor..."):
+            fiyat, isim = veri_getir_ozel(aranan)
+            if fiyat:
+                st.success("Bulundu!")
+                st.metric(label=isim, value=f"{fiyat} ₺ (veya $)")
+            else:
+                st.error("Hisse bulunamadı. Kodu doğru yazdığınızdan emin olun.")
+    
+    st.divider()
+    
+    # 2. POPÜLER HİSSELER VİTRİNİ
+    st.subheader("🔥 Popüler 15 Hisse (BIST)")
+    st.caption("Veriler canlı olarak çekilmektedir.")
+    
+    populer_list = piyasa_verileri_getir()
+    
+    # 3'lü kolonlar halinde gösterelim
+    cols = st.columns(3)
+    
+    # Verileri tek tek çekip kutucuklara basalım
+    for i, sembol in enumerate(populer_list):
+        with cols[i % 3]: # 3 kolona dağıtma mantığı
+            fiyat, isim = veri_getir_ozel(sembol)
+            if fiyat:
+                st.metric(label=sembol.replace(".IS", ""), value=f"{fiyat} ₺")
+            else:
+                st.metric(label=sembol, value="--")
 
 # 2. HALKA ARZLAR
 elif secim == "🚀 Halka Arzlar":
