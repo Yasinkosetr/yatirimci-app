@@ -9,10 +9,11 @@ import hashlib
 import plotly.graph_objects as go
 import requests
 import xml.etree.ElementTree as ET
-import streamlit.components.v1 as components # Siteyi gömmek için
+import streamlit.components.v1 as components
+from email.utils import parsedate_to_datetime # 🕒 Tarihleri sıralamak için gerekli
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="Yatırımcı Pro V11.1", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Yatırımcı Pro V11.2", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. TASARIM ---
 st.markdown(
@@ -92,10 +93,9 @@ def veri_getir_ozel(hisse_kodu):
 def piyasa_verileri_getir():
     return ['THYAO.IS', 'GARAN.IS', 'ASELS.IS', 'SASA.IS', 'EREGL.IS', 'TUPRS.IS', 'FROTO.IS', 'KCHOL.IS', 'SISE.IS', 'BIMAS.IS', 'AKBNK.IS', 'HEKTS.IS', 'PETKM.IS', 'KONTR.IS', 'ASTOR.IS']
 
-# 🔥 YENİ: HALKA ARZ HABERLERİNİ ÇEKME (ENGELLENEMEZ YÖNTEM) 🔥
+# 🔥 GÜNCELLENEN HABER MOTORU (TARİH SIRALAMALI) 🔥
 @st.cache_data(ttl=3600)
 def halka_arz_haberleri():
-    # Google News üzerinden "Halka Arz Takvimi" ve "SPK Onayı" araması yapıyoruz
     url = "https://news.google.com/rss/search?q=Halka+Arz+Takvimi+SPK+Onayı&hl=tr&gl=TR&ceid=TR:tr"
     
     try:
@@ -103,12 +103,18 @@ def halka_arz_haberleri():
         root = ET.fromstring(resp.content)
         
         haberler = []
-        for item in root.findall('./channel/item')[:8]: # Son 8 haber
+        for item in root.findall('./channel/item'): # Hepsini al, sonra filtrele
             title = item.find('title').text
             link = item.find('link').text
             pubDate = item.find('pubDate').text
             
-            # Kaynak ismini başlıktan ayıkla
+            # Tarihi Python objesine çevir (Sıralama için)
+            try:
+                dt_obj = parsedate_to_datetime(pubDate)
+            except:
+                dt_obj = datetime.now() # Hata verirse şu anı al
+
+            # Kaynak ismi ayıklama
             source = "Google News"
             clean_title = title
             if "-" in title:
@@ -116,20 +122,21 @@ def halka_arz_haberleri():
                 clean_title = parts[0].strip()
                 source = parts[1].strip()
             
-            # Tarihi düzelt
-            try:
-                dt = datetime.strptime(pubDate, "%a, %d %b %Y %H:%M:%S %Z")
-                date_str = dt.strftime("%d-%m-%Y")
-            except:
-                date_str = ""
+            # Görünen tarih formatı
+            date_str = dt_obj.strftime("%d.%m.%Y %H:%M")
 
             haberler.append({
                 'title': clean_title,
                 'link': link,
                 'source': source,
-                'date': date_str
+                'date_str': date_str,
+                'dt_obj': dt_obj # Sıralama anahtarı
             })
-        return haberler
+        
+        # 🕒 TARİHE GÖRE SIRALA (YENİDEN ESKİYE)
+        haberler.sort(key=lambda x: x['dt_obj'], reverse=True)
+        
+        return haberler[:10] # En yeni 10 taneyi döndür
     except Exception:
         return []
 
@@ -159,18 +166,32 @@ def google_haberleri_getir(sembol):
         resp = requests.get(url, timeout=5)
         root = ET.fromstring(resp.content)
         haberler = []
-        for item in root.findall('./channel/item')[:5]:
+        for item in root.findall('./channel/item'):
             title = item.find('title').text
             link = item.find('link').text
             pubDate = item.find('pubDate').text
+            
+            try: dt_obj = parsedate_to_datetime(pubDate)
+            except: dt_obj = datetime.now()
+            
             if "-" in title:
                 kaynak = title.split("-")[-1].strip()
                 baslik_temiz = "-".join(title.split("-")[:-1]).strip()
             else:
                 kaynak = "Google News"
                 baslik_temiz = title
-            haberler.append({'title': baslik_temiz, 'link': link, 'publisher': kaynak, 'time': pubDate})
-        return haberler
+            
+            haberler.append({
+                'title': baslik_temiz, 
+                'link': link, 
+                'publisher': kaynak, 
+                'time': dt_obj.strftime("%d.%m %H:%M"),
+                'dt_obj': dt_obj
+            })
+        
+        # 🕒 SIRALA
+        haberler.sort(key=lambda x: x['dt_obj'], reverse=True)
+        return haberler[:5]
     except Exception: return []
 
 def hisse_performans_analizi(sembol):
@@ -179,13 +200,10 @@ def hisse_performans_analizi(sembol):
     if hist.empty: return None, None, None
     suan = hist['Close'].iloc[-1]
     def degisim(gun): return ((suan - hist['Close'].iloc[-gun-1]) / hist['Close'].iloc[-gun-1] * 100) if len(hist) > gun else 0.0
-    haberler = ticker.news
-    if not haberler: haberler = google_haberleri_getir(sembol)
-    else:
-        yeni_haberler = []
-        for h in haberler:
-            yeni_haberler.append({'title': h.get('title', ''), 'link': h.get('link', '#'), 'publisher': h.get('publisher', 'Yahoo'), 'time': ''})
-        haberler = yeni_haberler
+    
+    # Haberleri çek ve sırala
+    haberler = google_haberleri_getir(sembol)
+    
     data = {"Fiyat": suan, "1 Gün": degisim(1), "1 Hafta": degisim(5), "3 Ay": degisim(63), "1 Yıl": degisim(252), "5 Yıl": degisim(1260)}
     return data, hist, haberler
 
@@ -205,7 +223,7 @@ if 'giris_yapildi' not in st.session_state:
 if 'secilen_hisse_detay' not in st.session_state: st.session_state.secilen_hisse_detay = None
 
 def giris_sayfasi():
-    st.markdown("<h1 style='text-align: center;'>🔐 Yatırımcı Pro V11.1</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center;'>🔐 Yatırımcı Pro V11.2</h1>", unsafe_allow_html=True)
     t1, t2 = st.tabs(["Giriş", "Kayıt"])
     with t1:
         c1, c2, c3 = st.columns([1,2,1])
@@ -337,7 +355,7 @@ def hisse_detay_goster(sembol):
         st.subheader(f"📰 {isim} Gündem")
         if haberler:
             for h in haberler:
-                st.markdown(f"[{h['title']}]({h['link']}) - *{h['publisher']}*")
+                st.markdown(f"[{h['title']}]({h['link']}) - *{h['publisher']} ({h['time']})*")
         else: st.info("Haber yok.")
     else: st.error("Veri yok.")
 
@@ -462,14 +480,13 @@ else:
                         <a href="{h['link']}" target="_blank" style="text-decoration:none; color:#4DA6FF; font-weight:bold; font-size:16px;">
                             {h['title']}
                         </a><br>
-                        <span style="color:#aaa; font-size:12px;">📰 {h['source']} | 📅 {h['date']}</span>
+                        <span style="color:#aaa; font-size:12px;">📰 {h['source']} | 📅 {h['date_str']}</span>
                     </div>
                     """, unsafe_allow_html=True)
             else:
                 st.warning("Şu an güncel halka arz haberi bulunamadı.")
             
             st.divider()
-            # GÖMÜLÜ SİTE (IFRAME) - YEDEK OLARAK
             st.subheader("🌐 Canlı Tablo (Kaynak: Halkarz.com)")
             components.iframe("https://halkarz.com/", height=600, scrolling=True)
 
