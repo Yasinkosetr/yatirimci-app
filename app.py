@@ -7,7 +7,7 @@ import yfinance as yf
 import time
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="Yatırımcı Pro V6.0", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Yatırımcı Pro V5.4", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. TASARIM ---
 st.markdown(
@@ -17,7 +17,8 @@ st.markdown(
     [data-testid="stSidebar"] {background-color: #1c1c1e; border-right: 1px solid #333;}
     html, body, [class*="css"] {font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #E0E0E0;}
     .stButton>button {background-image: linear-gradient(19deg, #F4D03F 0%, #16A085 100%); color: white; border: none; border-radius: 10px;}
-    [data-testid="stMetricValue"] {font-size: 1.6rem !important; color: #00ff00;}
+    [data-testid="stMetricValue"] {font-size: 1.8rem !important; color: #00ff00;}
+    /* Hızlı Satış Paneli için özel kırmızı buton stili */
     div[data-testid="column"] button {border: 1px solid #ff4b4b;}
     </style>
     """, unsafe_allow_html=True
@@ -79,49 +80,6 @@ def veri_getir_ozel(hisse_kodu):
     except: pass
     return None, sembol
 
-# 🔥 GİZLİ KAHRAMAN: GEÇMİŞ MUHASEBE HESAPLAYICI 🔥
-def portfoy_hesapla(df):
-    if df.empty: return {}, 0.0
-    
-    # Tarihe göre sırala ki işlemler doğru sırayla hesaplansın
-    df['Tarih'] = pd.to_datetime(df['Tarih'])
-    df = df.sort_values(by='Tarih')
-    
-    portfoy = {}  # {Hisse: {'Adet': 0, 'Maliyet': 0}}
-    gerceklesen_kar_zarar = 0.0
-    
-    for index, row in df.iterrows():
-        hisse = row['Hisse Adı']
-        islem = row['İşlem']
-        adet = float(row['Lot'])
-        fiyat = float(row['Fiyat'])
-        
-        if hisse not in portfoy:
-            portfoy[hisse] = {'Adet': 0.0, 'Ort_Maliyet': 0.0}
-            
-        mevcut = portfoy[hisse]
-        
-        if islem == "Alış":
-            # Ağırlıklı Ortalama Maliyet Hesabı
-            eski_tutar = mevcut['Adet'] * mevcut['Ort_Maliyet']
-            yeni_tutar = adet * fiyat
-            toplam_adet = mevcut['Adet'] + adet
-            
-            mevcut['Ort_Maliyet'] = (eski_tutar + yeni_tutar) / toplam_adet if toplam_adet > 0 else 0
-            mevcut['Adet'] = toplam_adet
-            
-        elif islem == "Satış":
-            # Satıştan Doğan Kâr/Zarar (Realized P/L)
-            satis_kari = (fiyat - mevcut['Ort_Maliyet']) * adet
-            gerceklesen_kar_zarar += satis_kari
-            
-            mevcut['Adet'] -= adet
-            if mevcut['Adet'] < 0: mevcut['Adet'] = 0 # Eksiye düşerse sıfırla
-            
-            # Satış yapınca maliyet değişmez, sadece adet düşer.
-            
-    return portfoy, gerceklesen_kar_zarar
-
 # --- 5. VERİ YÜKLEME ---
 sheet, data = get_data()
 df = pd.DataFrame(data)
@@ -139,4 +97,210 @@ elif 'giris_yapildi' not in st.session_state:
 
 if not st.session_state.giris_yapildi:
     st.markdown("<h1 style='text-align: center;'>🔐 Yatırımcı Girişi</h1>", unsafe_allow_html=True)
-    col1, col2,
+    col1, col2, col3 = st.columns([1,2,1])
+    with col2:
+        st.info("Kullanıcı: admin | Şifre: 1234") 
+        kullanici = st.text_input("Kullanıcı Adı")
+        sifre = st.text_input("Şifre", type="password")
+        if st.button("Giriş Yap", use_container_width=True):
+            if kullanici == "admin" and sifre == "1234":
+                st.session_state.giris_yapildi = True
+                st.query_params["giris"] = "ok"
+                st.rerun()
+            else:
+                st.error("Hatalı giriş!")
+    st.stop()
+
+# --- MENÜ ---
+with st.sidebar:
+    st.title("Yatırımcı v5.4")
+    secim = st.radio("Menü", ["📊 Canlı Portföy", "🚀 Halka Arzlar", "🧠 Portföy Analizi", "➕ İşlem Ekle", "📝 İşlem Geçmişi", "🛠️ Veri Kontrol"])
+    st.divider()
+    if st.button("🔄 Yenile"):
+        st.cache_data.clear()
+        st.rerun()
+    if st.button("🔒 Çıkış"):
+        st.session_state.giris_yapildi = False
+        st.query_params.clear()
+        st.rerun()
+
+# --- SAYFALAR ---
+
+# 1. CANLI PORTFÖY
+if secim == "📊 Canlı Portföy":
+    st.header("📊 Canlı Portföy Durumu")
+    if not df.empty:
+        ozet_listesi = []
+        genel_toplam_deger = 0
+        genel_toplam_maliyet = 0
+        
+        my_bar = st.progress(0, text="Analiz ediliyor...")
+        hisseler = df['Hisse Adı'].unique()
+        toplam_sayi = len(hisseler)
+        
+        for i, sembol in enumerate(hisseler):
+            my_bar.progress(int(((i+1) / toplam_sayi) * 100), text=f"{sembol}...")
+            
+            temp_df = df[df['Hisse Adı'] == sembol]
+            
+            alis = temp_df[temp_df['İşlem'] == 'Alış']
+            satis = temp_df[temp_df['İşlem'] == 'Satış']
+            net_lot = alis['Lot'].sum() - satis['Lot'].sum()
+            
+            if net_lot > 0:
+                toplam_maliyet = (alis['Lot'] * alis['Fiyat']).sum()
+                toplam_alis_lot = alis['Lot'].sum()
+                ort_maliyet = toplam_maliyet / toplam_alis_lot if toplam_alis_lot > 0 else 0
+                
+                guncel_fiyat, sirket_adi = veri_getir_ozel(sembol)
+                veri_durumu = "✅ Canlı"
+                if guncel_fiyat is None:
+                    guncel_fiyat = ort_maliyet
+                    veri_durumu = "⚠️ Veri Yok"
+                
+                guncel_tutar = net_lot * guncel_fiyat
+                maliyet_tutari = net_lot * ort_maliyet
+                kar_zarar = guncel_tutar - maliyet_tutari
+                
+                genel_toplam_deger += guncel_tutar
+                genel_toplam_maliyet += maliyet_tutari
+                
+                ozet_listesi.append({
+                    "Kod": sembol,
+                    "Şirket": sirket_adi if sirket_adi else sembol,
+                    "Adet": float(net_lot),
+                    "Ort. Maliyet": round(ort_maliyet, 2),
+                    "Anlık Fiyat": round(guncel_fiyat, 2),
+                    "Toplam Değer": round(guncel_tutar, 2),
+                    "Kâr/Zarar": round(kar_zarar, 2),
+                    "Durum": veri_durumu
+                })
+        
+        my_bar.empty()
+
+        col_m1, col_m2, col_m3 = st.columns(3)
+        genel_kar = genel_toplam_deger - genel_toplam_maliyet
+        genel_yuzde = (genel_kar / genel_toplam_maliyet * 100) if genel_toplam_maliyet > 0 else 0
+        
+        col_m1.metric("Toplam Portföy", f"{genel_toplam_deger:,.2f} ₺")
+        col_m2.metric("Toplam Maliyet", f"{genel_toplam_maliyet:,.2f} ₺")
+        col_m3.metric("Net Kâr/Zarar", f"{genel_kar:,.2f} ₺", f"%{genel_yuzde:.2f}")
+        
+        st.divider()
+        if ozet_listesi:
+            st.dataframe(pd.DataFrame(ozet_listesi), use_container_width=True)
+            
+            # 🔥🔥🔥 YENİ ÖZELLİK: HIZLI SATIŞ PANELİ 🔥🔥🔥
+            st.divider()
+            st.subheader("⚡ Hızlı Satış Paneli")
+            st.caption("Portföyündeki bir hisseyi, o anki fiyattan hızlıca satmak için burayı kullan.")
+            
+            # Sadece elde olan hisselerin listesi
+            eldekiler = [item['Kod'] for item in ozet_listesi]
+            
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                satilacak_hisse = st.selectbox("Satılacak Hisse", eldekiler)
+            
+            # Seçilen hissenin bilgilerini bul
+            secilen_veri = next((item for item in ozet_listesi if item['Kod'] == satilacak_hisse), None)
+            
+            if secilen_veri:
+                max_lot = secilen_veri['Adet']
+                anlik_fiyat = secilen_veri['Anlık Fiyat']
+                
+                with c2:
+                    sat_lot = st.number_input("Adet", min_value=0.0, max_value=max_lot, value=max_lot)
+                with c3:
+                    sat_fiyat = st.number_input("Satış Fiyatı", value=anlik_fiyat)
+                with c4:
+                    st.write("") # Boşluk
+                    st.write("") # Boşluk
+                    if st.button("🔴 SATIŞI ONAYLA", use_container_width=True, type="primary"):
+                        if sat_lot > 0:
+                            try:
+                                tarih_bugun = datetime.now().strftime("%Y-%m-%d")
+                                temiz_fiyat = str(sat_fiyat).replace(',', '.')
+                                # Kayıt: Tarih, Hisse, Satış, Lot, Fiyat, Halka Arz (False)
+                                yeni_veri = [tarih_bugun, satilacak_hisse, "Satış", sat_lot, temiz_fiyat, "FALSE"]
+                                sheet.append_row(yeni_veri)
+                                st.success(f"{sat_lot} lot {satilacak_hisse} satıldı!")
+                                time.sleep(1)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Hata: {e}")
+                        else:
+                            st.warning("Adet seçiniz.")
+        else:
+            st.info("Portföy boş.")
+    else:
+        st.warning("Veri yok.")
+
+# 2. HALKA ARZLAR
+elif secim == "🚀 Halka Arzlar":
+    st.header("🚀 Halka Arzlar")
+    if not df.empty and 'Halka Arz' in df.columns:
+        arz_df = df[df['Halka Arz'].astype(str).str.upper() == 'TRUE']
+        if not arz_df.empty: st.dataframe(arz_df, use_container_width=True)
+        else: st.info("Kayıt yok.")
+
+# 3. ANALİZ
+elif secim == "🧠 Portföy Analizi":
+    st.header("🧠 Yapay Zeka Risk Analizi")
+    if st.button("Analizi Başlat", use_container_width=True):
+        if not df.empty:
+            df['Tutar'] = df['Fiyat'] * df['Lot']
+            st.bar_chart(df, x="Hisse Adı", y="Tutar")
+        else:
+            st.warning("Veri yok.")
+
+# 4. İŞLEM EKLE
+elif secim == "➕ İşlem Ekle":
+    st.header("Yeni Yatırım Ekle")
+    if 'otomatik_fiyat' not in st.session_state: st.session_state.otomatik_fiyat = 0.0
+
+    col1, col2 = st.columns(2)
+    with col1:
+        hisse = st.text_input("Hisse Kodu (Örn: ASELS, AAPL)").upper()
+        if st.button("⚡ Fiyat Getir"):
+            if hisse:
+                with st.spinner("Aranıyor..."):
+                    gf, gi = veri_getir_ozel(hisse)
+                    if gf:
+                        st.session_state.otomatik_fiyat = float(gf)
+                        st.success(f"✅ {gi}: {gf}")
+                    else: st.error("Bulunamadı.")
+        islem = st.selectbox("İşlem", ["Alış", "Satış"])
+        tarih = st.date_input("Tarih", datetime.now()).strftime("%Y-%m-%d")
+
+    with col2:
+        lot = st.number_input("Lot", min_value=1)
+        fiyat = st.number_input("Fiyat", min_value=0.0, format="%.2f", value=st.session_state.otomatik_fiyat)
+        halka_arz = st.checkbox("Halka Arz")
+
+    if st.button("Kaydet", use_container_width=True):
+        if hisse and lot>0 and fiyat>0:
+            try:
+                temiz_hisse = hisse.strip().upper()
+                temiz_fiyat = str(fiyat).replace(',', '.') 
+                yeni_veri = [str(tarih), temiz_hisse, islem, lot, temiz_fiyat, str(halka_arz).upper()]
+                sheet.append_row(yeni_veri)
+                st.success("✅ Kaydedildi!")
+                st.session_state.otomatik_fiyat = 0.0
+            except Exception as e: st.error(f"Hata: {e}")
+        else: st.warning("Eksik bilgi.")
+
+# 5. GEÇMİŞ
+elif secim == "📝 İşlem Geçmişi":
+    st.header("📝 Tüm Kayıtlar")
+    if not df.empty: st.dataframe(df, use_container_width=True)
+
+# 6. DEBUG
+elif secim == "🛠️ Veri Kontrol":
+    st.header("🛠️ Veri Mühendisi Ekranı")
+    if not df.empty:
+        st.write(df.dtypes)
+        st.dataframe(df.head())
+        st.write(df['Fiyat'].describe())
+    else:
+        st.warning("Veri yok.")
