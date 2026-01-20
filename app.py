@@ -5,10 +5,10 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 import yfinance as yf
 import time
-import hashlib # Şifreleri gizlemek için
+import hashlib
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="Yatırımcı Pro V7.0", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Yatırımcı Pro V7.1", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. TASARIM ---
 st.markdown(
@@ -24,9 +24,8 @@ st.markdown(
     """, unsafe_allow_html=True
 )
 
-# --- 3. GÜVENLİK (ŞİFRELEME) ---
+# --- 3. GÜVENLİK ---
 def sifrele(sifre):
-    # Şifreyi okunamaz hale getirir (SHA256)
     return hashlib.sha256(str.encode(sifre)).hexdigest()
 
 def sifre_kontrol(girilen, veritabani_sifresi):
@@ -44,10 +43,9 @@ def get_sheets():
         client = gspread.authorize(creds)
         
         # 👇 LİNKİ BURAYA YAPIŞTIRMAYI UNUTMA 👇
-        sheet_url = "https://docs.google.com/spreadsheets/d/1ijPoTKNsXZBMxdRdMa7cpEhbSYt9kMwoqf5nZFNi7S8/edit?gid=0#gid=0"
+        sheet_url = "https://docs.google.com/spreadsheets/d/1ijPoTKNsXZBMxdRdMa7cpEhbSYt9kMwoqf5nZFNi7S8/edit?gid=499369690#gid=499369690"
         
         spreadsheet = client.open_by_url(sheet_url)
-        # İki sayfayı da çekiyoruz
         worksheet_islemler = spreadsheet.worksheet("Islemler")
         worksheet_uyeler = spreadsheet.worksheet("Uyeler")
         
@@ -56,7 +54,6 @@ def get_sheets():
         st.error(f"Veri tabanı hatası: {e}")
         st.stop()
 
-# Sayfaları yükle
 ws_islemler, ws_uyeler = get_sheets()
 
 # --- 5. YARDIMCI FONKSİYONLAR ---
@@ -132,7 +129,7 @@ if 'kullanici_adi' not in st.session_state: st.session_state.kullanici_adi = ""
 def giris_sayfasi():
     st.markdown("<h1 style='text-align: center;'>🔐 Yatırımcı Pro Giriş</h1>", unsafe_allow_html=True)
     
-    tab1, tab2 = st.tabs(["Giriş Yap", "Yeni Kayıt Oluştur"])
+    tab1, tab2 = st.tabs(["Giriş Yap", "Hızlı Kayıt Ol"])
     
     # --- GİRİŞ YAP ---
     with tab1:
@@ -144,7 +141,6 @@ def giris_sayfasi():
                 uyeler = ws_uyeler.get_all_records()
                 uye_df = pd.DataFrame(uyeler)
                 
-                # Kullanıcı kontrolü
                 if not uye_df.empty and kullanici in uye_df['Kullanıcı Adı'].values:
                     kayitli_sifre = uye_df[uye_df['Kullanıcı Adı'] == kullanici]['Şifre'].values[0]
                     if sifre_kontrol(sifre, kayitli_sifre):
@@ -158,12 +154,13 @@ def giris_sayfasi():
                 else:
                     st.error("Kullanıcı bulunamadı.")
 
-    # --- KAYIT OL ---
+    # --- KAYIT OL (SADELEŞTİRİLMİŞ) ---
     with tab2:
         col1, col2, col3 = st.columns([1,2,1])
         with col2:
+            st.info("Kayıt olmak için sadece Kullanıcı Adı ve Şifre yeterlidir.")
             yeni_kullanici = st.text_input("Belirleyeceğiniz Kullanıcı Adı")
-            yeni_email = st.text_input("Email veya Telefon")
+            # Email/Telefon kısmı kaldırıldı
             yeni_sifre = st.text_input("Belirleyeceğiniz Şifre", type="password")
             yeni_sifre_tekrar = st.text_input("Şifre Tekrar", type="password")
             
@@ -173,7 +170,6 @@ def giris_sayfasi():
                 elif not yeni_kullanici or not yeni_sifre:
                     st.error("Bilgiler boş olamaz.")
                 else:
-                    # Kullanıcı adı daha önce alınmış mı?
                     uyeler = ws_uyeler.get_all_records()
                     uye_df = pd.DataFrame(uyeler)
                     if not uye_df.empty and yeni_kullanici in uye_df['Kullanıcı Adı'].values:
@@ -182,9 +178,9 @@ def giris_sayfasi():
                         try:
                             tarih = datetime.now().strftime("%Y-%m-%d")
                             sifreli = sifrele(yeni_sifre)
-                            # Kayıt: Kullanıcı Adı, Şifre, Email, Tarih
-                            ws_uyeler.append_row([yeni_kullanici, sifreli, yeni_email, tarih])
-                            st.success("Kayıt başarılı! Şimdi 'Giriş Yap' sekmesinden girebilirsin.")
+                            # Kayıt: Kullanıcı Adı, Şifre, Tarih (Email yok)
+                            ws_uyeler.append_row([yeni_kullanici, sifreli, tarih])
+                            st.success("Kayıt başarılı! Şimdi giriş yapabilirsiniz.")
                         except Exception as e:
                             st.error(f"Kayıt hatası: {e}")
 
@@ -193,20 +189,15 @@ if not st.session_state.giris_yapildi:
     st.stop()
 
 # ==========================================
-# BURADAN AŞAĞISI SADECE GİRİŞ YAPAN KULLANICI İÇİNDİR
+# İÇERİK (GİRİŞ YAPAN KULLANICI)
 # ==========================================
 
-# Verileri Çek ve SADECE O KULLANICIYA AİT OLANLARI FİLTRELE
 tum_veriler = ws_islemler.get_all_records()
 df_tum = pd.DataFrame(tum_veriler)
 
-# Eğer veri varsa filtrele, yoksa boş dataframe oluştur
 if not df_tum.empty:
-    # Sütun isimlerini temizle
     df_tum.columns = df_tum.columns.str.strip()
-    # SADECE GİRİŞ YAPAN KULLANICININ VERİLERİNİ AL
     df = df_tum[df_tum['Kullanıcı'] == st.session_state.kullanici_adi].copy()
-    
     if 'Lot' in df.columns: df['Lot'] = df['Lot'].apply(zorla_sayi_yap)
     if 'Fiyat' in df.columns: df['Fiyat'] = df['Fiyat'].apply(zorla_sayi_yap)
 else:
@@ -215,7 +206,7 @@ else:
 # --- MENÜ ---
 with st.sidebar:
     st.write(f"👤 **Aktif Üye:** {st.session_state.kullanici_adi}")
-    st.title("Yatırımcı v7.0")
+    st.title("Yatırımcı v7.1")
     secim = st.radio("Menü", ["📊 Canlı Portföy", "🚀 Halka Arzlar", "🧠 Portföy Analizi", "➕ İşlem Ekle", "📝 İşlem Geçmişi"])
     st.divider()
     if st.button("🔄 Yenile"):
@@ -305,7 +296,6 @@ if secim == "📊 Canlı Portföy":
                             try:
                                 tarih_bugun = datetime.now().strftime("%Y-%m-%d")
                                 temiz_fiyat = str(sat_fiyat).replace(',', '.')
-                                # Kayıt: KULLANICI, Tarih, Hisse, Satış, Lot, Fiyat, Halka Arz
                                 yeni_veri = [st.session_state.kullanici_adi, tarih_bugun, satilacak_hisse, "Satış", sat_lot, temiz_fiyat, "FALSE"]
                                 ws_islemler.append_row(yeni_veri)
                                 st.success("Satıldı!")
@@ -315,10 +305,9 @@ if secim == "📊 Canlı Portföy":
         else:
             st.info("Portföyünüz boş.")
             
-        # SIFIRLAMA (SADECE KENDİ VERİLERİNİ SİLER)
         st.divider()
         with st.expander("🚨 Hesabımı Sıfırla"):
-            st.write("Sadece SİZE AİT olan tüm veriler silinecektir. Diğer kullanıcılar etkilenmez.")
+            st.write("Sadece SİZE AİT olan tüm veriler silinecektir.")
             if st.button("⚠️ VERİLERİMİ SİL"):
                 st.session_state.sifirlama_onay = True
         
@@ -326,12 +315,9 @@ if secim == "📊 Canlı Portföy":
             st.error("EMİN MİSİNİZ? Geri alınamaz.")
             if st.button("✅ EVET, SİL", type="primary"):
                 try:
-                    # Tüm satırları al
                     all_rows = ws_islemler.get_all_values()
-                    # Başlık hariç
                     header = all_rows[0]
                     rows = all_rows[1:]
-                    # Aktif kullanıcıya ait olmayanları tut
                     new_rows = [row for row in rows if row[0] != st.session_state.kullanici_adi]
                     
                     ws_islemler.clear()
@@ -390,7 +376,6 @@ elif secim == "➕ İşlem Ekle":
             try:
                 temiz_hisse = hisse.strip().upper()
                 temiz_fiyat = str(fiyat).replace(',', '.') 
-                # Kayıt: KULLANICI, Tarih, Hisse, İşlem, Lot, Fiyat, Halka Arz
                 yeni_veri = [st.session_state.kullanici_adi, str(tarih), temiz_hisse, islem, lot, temiz_fiyat, str(halka_arz).upper()]
                 ws_islemler.append_row(yeni_veri)
                 st.success("✅ Kaydedildi!")
