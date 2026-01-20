@@ -1,12 +1,3 @@
-Bu hata, kodun kopyalanırken yarım kaldığını gösteriyor. Büyük ihtimalle fareyle seçerken satırın sonundaki tırnak işaretini veya parantezi almadın.
-
-Hiç sorun değil. app.py dosyanın içindeki her şeyi sil (Ctrl+A -> Delete) ve aşağıdaki kodu tek parça halinde kopyalayıp yapıştır.
-
-Bu kodun çalıştığını test ettim, parantezlerin hepsi tam.
-
-🛠️ Yatırımcı App (Final - Tam Kod)
-Python
-
 import streamlit as st
 import pandas as pd
 import gspread
