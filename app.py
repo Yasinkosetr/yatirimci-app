@@ -19,37 +19,36 @@ st.markdown(
     """, unsafe_allow_html=True
 )
 
-# --- GOOGLE SHEETS BAĞLANTISI (ESKİ USÜL - İSİMLE BULMA) ---
+# --- GOOGLE SHEETS BAĞLANTISI ---
 def get_data():
     try:
-        # Secrets kontrolü
         if "gcp_service_account" not in st.secrets:
             st.error("Secrets ayarı yapılmamış.")
             st.stop()
             
         creds_dict = st.secrets["gcp_service_account"]
         
-        # En geniş yetkiyi veriyoruz (Hem Drive hem Sheets görsün)
+        # Geniş yetki (Drive + Sheets)
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         
-        # Dosyayı İSMİNDEN buluyoruz (Yatirimci_DB)
+        # Dosyayı İSMİNDEN buluyoruz
         sheet = client.open("Yatirimci_DB").sheet1
         data = sheet.get_all_records()
         return sheet, data
 
     except Exception as e:
-        # Eğer yine "Enable Drive API" derse linki göstermek için:
-        st.error(f"HATA: {e}")
+        st.error(f"Bağlantı Hatası: {e}")
+        st.info("Eğer 'API Disabled' hatası alıyorsan, sana verdiği linke tıkla ve Enable de.")
         st.stop()
 
 # Veriyi çek
 sheet, data = get_data()
 df = pd.DataFrame(data)
 
-# --- OTURUM AÇMA (Sayfa Yenilenince Atmaz) ---
+# --- OTURUM AÇMA (Kalıcı) ---
 if "giris" in st.query_params and st.query_params["giris"] == "ok":
     st.session_state.giris_yapildi = True
 elif 'giris_yapildi' not in st.session_state:
@@ -77,7 +76,7 @@ if not st.session_state.giris_yapildi:
 
 # --- MENÜ ---
 with st.sidebar:
-    st.title("Yatırımcı v2.3")
+    st.title("Yatırımcı v2.4")
     secim = st.radio("Menü", ["📊 Güncel Portföy", "🚀 Halka Arzlar", "➕ İşlem Ekle", "📝 İşlem Geçmişi"])
     
     col1, col2 = st.columns(2)
@@ -101,7 +100,7 @@ if secim == "📊 Güncel Portföy":
         for sembol in df['Hisse Adı'].unique():
             temp_df = df[df['Hisse Adı'] == sembol]
             
-            # Sayıya çevir (Hata önle)
+            # Sayıya çevir
             temp_df['Lot'] = pd.to_numeric(temp_df['Lot'], errors='coerce').fillna(0)
             temp_df['Fiyat'] = pd.to_numeric(temp_df['Fiyat'], errors='coerce').fillna(0)
             
@@ -120,5 +119,29 @@ if secim == "📊 Güncel Portföy":
                     "Ort. Maliyet": round(ort_maliyet, 2),
                     "Toplam Değer": round(net_lot * ort_maliyet, 2)
                 })
+        
+        # HATANIN OLDUĞU YER BURASIYDI, DÜZELTTİM:
         if ozet_listesi:
-            st.dataframe(pd.DataFrame(ozet_list
+            st.dataframe(pd.DataFrame(ozet_listesi), use_container_width=True)
+        else:
+            st.info("Portföy boş.")
+    else:
+        st.warning("Veri yok.")
+
+# 2. HALKA ARZLAR
+elif secim == "🚀 Halka Arzlar":
+    st.header("🚀 Halka Arzlar")
+    if not df.empty:
+        arz_df = df[df['Halka Arz'].astype(str).str.upper() == 'TRUE']
+        if not arz_df.empty:
+            st.dataframe(arz_df, use_container_width=True)
+        else:
+            st.info("Halka arz yok.")
+
+# 3. İŞLEM EKLE
+elif secim == "➕ İşlem Ekle":
+    st.header("Yeni Yatırım Ekle")
+    col1, col2 = st.columns(2)
+    with col1:
+        hisse = st.text_input("Hisse Kodu").upper()
+        islem = st.selectbox("İşlem", ["Al
