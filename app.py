@@ -8,7 +8,7 @@ import time
 import hashlib
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="Yatırımcı Pro V9.3", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Yatırımcı Pro V9.4", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. TASARIM ---
 st.markdown(
@@ -71,7 +71,6 @@ def veri_getir_ozel(hisse_kodu):
                 degisim = ((fiyat - h['Close'].iloc[-2]) / h['Close'].iloc[-2] * 100) if len(h) >= 2 else 0.0
                 return fiyat, tik.info.get('longName', sembol), f"{sembol}.IS", degisim
         except: pass
-    
     try:
         tik = yf.Ticker(sembol)
         h = tik.history(period="5d")
@@ -172,7 +171,7 @@ with st.sidebar:
         st.session_state.secilen_hisse_detay = None
         st.rerun()
 
-# --- HİSSE DETAY ---
+# --- HİSSE DETAY SAYFASI ---
 def hisse_detay_goster(sembol):
     st.button("⬅️ Geri Dön", on_click=lambda: st.session_state.update(secilen_hisse_detay=None))
     with st.spinner(f"{sembol} analiz ediliyor..."):
@@ -193,7 +192,6 @@ def hisse_detay_goster(sembol):
         c5.metric("5 Yıl", f"%{analiz['5 Yıl']:.2f}", delta=f"{analiz['5 Yıl']:.2f}")
         
         st.divider()
-        # HIZLI AL/SAT (DETAY SAYFASI İÇİN)
         col_al, col_sat = st.columns(2)
         with col_al:
             al_lot = st.number_input("Alınacak Lot", min_value=1, key="detay_al_lot")
@@ -246,54 +244,78 @@ else:
                     c4.metric("K/Z", f"{kar:,.0f} ₺", delta=f"{kar:,.0f}")
                     eldekilerin_degeri += tutar
                     eldekilerin_maliyeti += (v['Adet'] * v['Ort_Maliyet'])
-                
                 st.divider()
                 genel_net = gerceklesen + (eldekilerin_degeri - eldekilerin_maliyeti)
                 c1, c2 = st.columns(2)
                 c1.metric("Portföy Değeri", f"{eldekilerin_degeri:,.2f} ₺")
                 c2.metric("GENEL NET DURUM", f"{genel_net:,.2f} ₺", delta=f"{genel_net:,.2f}")
 
-                # 🔥🔥🔥 YENİ EKLENEN KISIM: CANLI PORTFÖYDE HIZLI AL/SAT PANELİ 🔥🔥🔥
+                # Portföy İçi Hızlı Al/Sat
                 st.divider()
-                with st.expander("⚡ Hızlı Al/Sat Paneli (Portföy İçi)", expanded=True):
-                    st.caption("Buradan mevcut hisseleriniz üzerinde ekleme (Alış) veya azaltma (Satış) yapabilirsiniz. Kâr/Zarar otomatik hesaplanır.")
-                    
-                    # 1. Hisse Seç (Sadece eldekiler)
-                    secilen_hisse = st.selectbox("İşlem Yapılacak Hisse", aktifler, key="hzl_select")
-                    
-                    # Seçilen hissenin güncel fiyatını bulalım
+                with st.expander("⚡ Hızlı Al/Sat Paneli", expanded=True):
+                    secilen_hisse = st.selectbox("Hisse", aktifler, key="hzl_select")
                     hzl_fiyat, _, hzl_kod, _ = veri_getir_ozel(secilen_hisse)
                     if not hzl_fiyat: hzl_fiyat = 0.0
-                    
                     col_hzl1, col_hzl2 = st.columns(2)
-                    
-                    # ORTAK GİRDİLER
-                    hzl_lot = st.number_input("İşlem Adedi (Lot)", min_value=1, key="hzl_lot")
-                    hzl_islem_fiyati = st.number_input("İşlem Fiyatı", value=float(hzl_fiyat), format="%.2f", key="hzl_fiyat_inp")
-                    
+                    hzl_lot = st.number_input("Lot", min_value=1, key="hzl_lot")
+                    hzl_islem_fiyati = st.number_input("Fiyat", value=float(hzl_fiyat), format="%.2f", key="hzl_fiyat_inp")
                     col_b1, col_b2 = st.columns(2)
-                    
                     with col_b1:
-                        if st.button("🟢 EKLE (ALIŞ)", key="hzl_btn_al", type="primary", use_container_width=True):
+                        if st.button("🟢 AL", key="hzl_btn_al", type="primary", use_container_width=True):
                             try:
                                 tarih = datetime.now().strftime("%Y-%m-%d")
                                 f_str = str(hzl_islem_fiyati).replace(',', '.')
                                 ws_islemler.append_row([st.session_state.kullanici_adi, tarih, hzl_kod, "Alış", hzl_lot, f_str, "FALSE"])
-                                st.success("Portföye Eklendi!")
+                                st.success("Eklendi!")
                                 time.sleep(1)
                                 st.rerun()
                             except Exception as e: st.error(f"Hata: {e}")
-                            
                     with col_b2:
-                        if st.button("🔴 BOZ (SATIŞ)", key="hzl_btn_sat", type="secondary", use_container_width=True):
+                        if st.button("🔴 SAT", key="hzl_btn_sat", type="secondary", use_container_width=True):
                             try:
                                 tarih = datetime.now().strftime("%Y-%m-%d")
                                 f_str = str(hzl_islem_fiyati).replace(',', '.')
                                 ws_islemler.append_row([st.session_state.kullanici_adi, tarih, hzl_kod, "Satış", hzl_lot, f_str, "FALSE"])
-                                st.success("Satış Yapıldı!")
+                                st.success("Satıldı!")
                                 time.sleep(1)
                                 st.rerun()
                             except Exception as e: st.error(f"Hata: {e}")
+
+                # 🔥🔥🔥 SIFIRLAMA BUTONU BURADA 🔥🔥🔥
+                st.divider()
+                with st.expander("🚨 Hesabımı Sıfırla (Geri Dönüş Yok)"):
+                    st.write("Bu işlem SADECE SENİN tüm alım satım geçmişini siler. Bakiye sıfırlanır.")
+                    if st.button("⚠️ TÜM VERİLERİMİ SİL"):
+                        st.session_state.sifirlama_onay = True
+                
+                if st.session_state.get('sifirlama_onay'):
+                    st.error("🛑 EMİN MİSİN? Tüm geçmişin silinecek.")
+                    k1, k2 = st.columns(2)
+                    with k1:
+                        if st.button("✅ EVET, SİL", type="primary"):
+                            try:
+                                # Tüm veriyi çek
+                                all_rows = ws_islemler.get_all_values()
+                                header = all_rows[0]
+                                data_rows = all_rows[1:]
+                                
+                                # Sadece bu kullanıcının OLMADIĞI satırları tut (Başkalarını silme)
+                                keep_rows = [row for row in data_rows if row[0] != st.session_state.kullanici_adi]
+                                
+                                # Temizle ve geri yükle
+                                ws_islemler.clear()
+                                ws_islemler.append_row(header)
+                                if keep_rows: ws_islemler.append_rows(keep_rows)
+                                
+                                st.success("Hesabınız tertemiz oldu.")
+                                st.session_state.sifirlama_onay = False
+                                time.sleep(2)
+                                st.rerun()
+                            except Exception as e: st.error(f"Hata: {e}")
+                    with k2:
+                        if st.button("❌ VAZGEÇ"):
+                            st.session_state.sifirlama_onay = False
+                            st.rerun()
 
             else: st.info("Portföy boş.")
         else: st.warning("Veri yok.")
