@@ -4,10 +4,9 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
-# --- AYARLAR ---
+# --- 1. AYARLAR VE TASARIM ---
 st.set_page_config(page_title="Yatırımcı Pro", layout="wide", initial_sidebar_state="expanded")
 
-# --- TASARIM (CSS) ---
 st.markdown(
     """
     <style>
@@ -19,32 +18,37 @@ st.markdown(
     """, unsafe_allow_html=True
 )
 
-# --- GOOGLE SHEETS BAĞLANTISI ---
+# --- 2. GOOGLE SHEETS BAĞLANTISI ---
 def get_data():
-    # Streamlit Secrets'tan bilgileri alıp bağlanıyoruz
-    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
-    client = gspread.authorize(creds)
-    sheet = client.open("Yatirimci_DB").sheet1 # Dosya Adı BURADA ÖNEMLİ
-    data = sheet.get_all_records()
-    return sheet, data
+    try:
+        if "gcp_service_account" not in st.secrets:
+            st.error("Secrets ayarı bulunamadı.")
+            st.stop()
+            
+        creds_dict = st.secrets["gcp_service_account"]
+        
+        # Drive API hatası almamak için sadece Sheets yetkisi
+        scope = ['https://www.googleapis.com/auth/spreadsheets']
+        
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        
+        # Dosya ismiyle açmayı dener (Hata verirse ID ile açma yöntemine geçeriz)
+        sheet = client.open("Yatirimci_DB").sheet1
+        data = sheet.get_all_records()
+        return sheet, data
 
-try:
-    sheet, data = get_data()
-    df = pd.DataFrame(data)
-except Exception as e:
-    st.error(f"Google Sheets Bağlantı Hatası: {e}")
-    st.stop()
+    except Exception as e:
+        st.error(f"Veri Çekme Hatası: {e}")
+        st.stop()
 
-# --- OTURUM AÇMA ---
-if 'giris_yapildi' not in st.session_state:
-    st.session_state.giris_yapildi = False
+# Veriyi çek (Giriş yapmadan önce veritabanı hazır olsun)
+sheet, data = get_data()
+df = pd.DataFrame(data)
 
-def giris_ekrani():
-    # --- OTURUM AÇMA (Sayfa Yenilense de Kalıcı) ---
+# --- 3. GELİŞMİŞ OTURUM AÇMA (Sayfa Yenilense de Atmaz) ---
 
-# 1. Önce URL'e bak: Daha önce giriş yapılmış mı?
-# Eğer adres çubuğunda '?giris=ok' yazıyorsa direkt içeri al
+# Önce URL kontrolü: Adres çubuğunda anahtar var mı?
 if "giris" in st.query_params and st.query_params["giris"] == "ok":
     st.session_state.giris_yapildi = True
 elif 'giris_yapildi' not in st.session_state:
@@ -54,37 +58,47 @@ def giris_ekrani():
     st.markdown("<h1 style='text-align: center;'>🔐 Yatırımcı Girişi</h1>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        st.info("Kullanıcı: admin | Şifre: 1234") # Unutma diye buraya yazdım, istersen sil
+        st.info("Kullanıcı: admin | Şifre: 1234") # Şifreyi unutma diye
         kullanici = st.text_input("Kullanıcı Adı")
         sifre = st.text_input("Şifre", type="password")
         
         if st.button("Giriş Yap", use_container_width=True):
             if kullanici == "admin" and sifre == "1234":
                 st.session_state.giris_yapildi = True
-                # SİHİRLİ KOD BURASI: Adres çubuğuna 'giris=ok' yazar
+                # URL'e 'giris=ok' yazar, böylece F5 atınca sistem seni tanır
                 st.query_params["giris"] = "ok"
                 st.rerun()
             else:
-                st.error("Hatalı giriş!")
+                st.error("Hatalı kullanıcı adı veya şifre!")
 
-# Eğer giriş yapılmadıysa ekranı göster ve durdur
+# Giriş yapılmamışsa kod burada durur ve sadece giriş ekranını gösterir
 if not st.session_state.giris_yapildi:
     giris_ekrani()
     st.stop()
 
-# --- MENÜYE "ÇIKIŞ YAP" BUTONU GÜNCELLEMESİ ---
-# Aşağıdaki menü kısmında "Çıkış Yap" butonunu da şöyle güncellemelisin:
-# (Bunu sidebar kodunun içine koyacaksın)
+# ==========================================
+# BURADAN AŞAĞISI SADECE GİRİŞ YAPILINCA ÇALIŞIR
+# ==========================================
 
-# --- MENÜ ---
+# --- 4. YAN MENÜ ---
 with st.sidebar:
-    st.divider()
-    if st.button("🔒 Çıkış Yap"):
-        st.session_state.giris_yapildi = False
-        st.query_params.clear() # URL'deki notu siler
-        st.rerun()
+    st.title("Yatırımcı v2.2")
+    secim = st.radio("Menü", ["📊 Güncel Portföy", "🚀 Halka Arzlar", "➕ İşlem Ekle", "📝 İşlem Geçmişi"])
+    
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("🔄 Yenile"):
+            st.cache_data.clear()
+            st.rerun()
+    with col_btn2:
+        if st.button("🔒 Çıkış"):
+            st.session_state.giris_yapildi = False
+            st.query_params.clear() # URL temizle
+            st.rerun()
 
-# --- SAYFA 1: PORTFÖY ---
+# --- 5. SAYFALAR ---
+
+# SAYFA: GÜNCEL PORTFÖY
 if secim == "📊 Güncel Portföy":
     st.header("📊 Portföy Durumu")
     if not df.empty:
@@ -92,9 +106,9 @@ if secim == "📊 Güncel Portföy":
         for sembol in df['Hisse Adı'].unique():
             temp_df = df[df['Hisse Adı'] == sembol]
             
-            # Lot ve Fiyat sütunlarını sayıya çevirelim (Hata önlemek için)
-            temp_df['Lot'] = pd.to_numeric(temp_df['Lot'])
-            temp_df['Fiyat'] = pd.to_numeric(temp_df['Fiyat'])
+            # Sayıya çevirme (Hata önleyici)
+            temp_df['Lot'] = pd.to_numeric(temp_df['Lot'], errors='coerce').fillna(0)
+            temp_df['Fiyat'] = pd.to_numeric(temp_df['Fiyat'], errors='coerce').fillna(0)
             
             alis = temp_df[temp_df['İşlem'] == 'Alış']
             satis = temp_df[temp_df['İşlem'] == 'Satış']
@@ -102,10 +116,8 @@ if secim == "📊 Güncel Portföy":
             net_lot = alis['Lot'].sum() - satis['Lot'].sum()
             
             if net_lot > 0:
-                # Ağırlıklı ortalama maliyet
                 toplam_maliyet = (alis['Lot'] * alis['Fiyat']).sum()
-                toplam_alis_lot = alis['Lot'].sum()
-                ort_maliyet = toplam_maliyet / toplam_alis_lot if toplam_alis_lot > 0 else 0
+                ort_maliyet = toplam_maliyet / alis['Lot'].sum() if alis['Lot'].sum() > 0 else 0
                 
                 ozet_listesi.append({
                     "Hisse": sembol,
@@ -117,50 +129,22 @@ if secim == "📊 Güncel Portföy":
         if ozet_listesi:
             st.dataframe(pd.DataFrame(ozet_listesi), use_container_width=True)
         else:
-            st.info("Elinizde hisse yok.")
+            st.info("Elinizde açık pozisyon (hisse) bulunmuyor.")
     else:
         st.warning("Veritabanı boş.")
 
-# --- SAYFA 2: HALKA ARZLAR ---
+# SAYFA: HALKA ARZLAR
 elif secim == "🚀 Halka Arzlar":
-    st.header("🚀 Halka Arzlar")
+    st.header("🚀 Halka Arz Takip")
     if not df.empty:
-        # Sheet'ten gelen TRUE/FALSE bazen yazı (string) olabilir, kontrol ediyoruz
+        # Halka Arz sütununu string yapıp kontrol ediyoruz (True/TRUE/true karışıklığı olmasın diye)
         arz_df = df[df['Halka Arz'].astype(str).str.upper() == 'TRUE']
         if not arz_df.empty:
             st.dataframe(arz_df, use_container_width=True)
         else:
-            st.info("Halka arz kaydı yok.")
+            st.info("Halka arz kaydı bulunamadı.")
 
-# --- SAYFA 3: İŞLEM EKLE ---
+# SAYFA: İŞLEM EKLE
 elif secim == "➕ İşlem Ekle":
     st.header("Yeni Yatırım Ekle")
     col1, col2 = st.columns(2)
-    with col1:
-        hisse = st.text_input("Hisse Kodu").upper()
-        islem = st.selectbox("İşlem", ["Alış", "Satış"])
-        tarih = st.date_input("Tarih", datetime.now()).strftime("%Y-%m-%d")
-    with col2:
-        lot = st.number_input("Lot", min_value=1)
-        fiyat = st.number_input("Fiyat", min_value=0.0, format="%.2f")
-        halka_arz = st.checkbox("Halka Arz İşlemi")
-
-    if st.button("Kaydet", use_container_width=True):
-        if hisse:
-            st.info("Google Sheets'e kaydediliyor...")
-            try:
-                # Yeni satırı sheet'e ekle
-                yeni_veri = [str(tarih), hisse, islem, lot, fiyat, str(halka_arz).upper()]
-                sheet.append_row(yeni_veri)
-                st.success("Kaydedildi! Listeyi görmek için sayfayı yenileyin.")
-                st.cache_data.clear() # Önbelleği temizle ki yeni veri görünsün
-            except Exception as e:
-                st.error(f"Kayıt hatası: {e}")
-        else:
-            st.warning("Hisse adı giriniz.")
-
-# --- SAYFA 4: GEÇMİŞ ---
-elif secim == "📝 İşlem Geçmişi":
-    st.header("📝 Tüm Kayıtlar")
-    if not df.empty:
-        st.dataframe(df, use_container_width=True)
