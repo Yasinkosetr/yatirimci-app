@@ -8,7 +8,7 @@ import time
 import hashlib
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="Yatırımcı Pro V9.6", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Yatırımcı Pro V9.7", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. TASARIM ---
 st.markdown(
@@ -111,9 +111,22 @@ def hisse_performans_analizi(sembol):
     def degisim(gun): return ((suan - hist['Close'].iloc[-gun-1]) / hist['Close'].iloc[-gun-1] * 100) if len(hist) > gun else 0.0
     return {"Fiyat": suan, "1 Gün": degisim(1), "1 Hafta": degisim(5), "3 Ay": degisim(63), "1 Yıl": degisim(252), "5 Yıl": degisim(1260)}
 
-# --- 6. GİRİŞ SİSTEMİ ---
-if 'giris_yapildi' not in st.session_state: st.session_state.giris_yapildi = False
-if 'kullanici_adi' not in st.session_state: st.session_state.kullanici_adi = ""
+# --- 6. GİRİŞ VE OTURUM YÖNETİMİ (BURASI DEĞİŞTİ) ---
+
+# 1. URL KONTROLÜ (F5 ATINCA BURADAN YAKALAR)
+query_params = st.query_params
+url_kullanici = query_params.get("kullanici", None)
+url_giris = query_params.get("giris", None)
+
+if 'giris_yapildi' not in st.session_state:
+    # Eğer URL'de bilgi varsa otomatik giriş yap
+    if url_kullanici and url_giris == "ok":
+        st.session_state.giris_yapildi = True
+        st.session_state.kullanici_adi = url_kullanici
+    else:
+        st.session_state.giris_yapildi = False
+        st.session_state.kullanici_adi = ""
+
 if 'secilen_hisse_detay' not in st.session_state: st.session_state.secilen_hisse_detay = None
 
 def giris_sayfasi():
@@ -130,6 +143,9 @@ def giris_sayfasi():
                     if sifre_kontrol(p, udf[udf['Kullanıcı Adı']==u]['Şifre'].values[0]):
                         st.session_state.giris_yapildi = True
                         st.session_state.kullanici_adi = u
+                        # 🔥 URL'YE KAYDET (F5 İÇİN)
+                        st.query_params["kullanici"] = u
+                        st.query_params["giris"] = "ok"
                         st.rerun()
                     else: st.error("Hatalı Şifre")
                 else: st.error("Kullanıcı Yok")
@@ -169,6 +185,8 @@ with st.sidebar:
     if st.button("🔒 Çıkış"): 
         st.session_state.giris_yapildi = False
         st.session_state.secilen_hisse_detay = None
+        # 🔥 URL'Yİ TEMİZLE (ÇIKIŞ İÇİN)
+        st.query_params.clear()
         st.rerun()
 
 # --- HİSSE DETAY SAYFASI ---
@@ -190,6 +208,14 @@ def hisse_detay_goster(sembol):
         c3.metric("3 Ay", f"%{analiz['3 Ay']:.2f}", delta=f"{analiz['3 Ay']:.2f}")
         c4.metric("1 Yıl", f"%{analiz['1 Yıl']:.2f}", delta=f"{analiz['1 Yıl']:.2f}")
         c5.metric("5 Yıl", f"%{analiz['5 Yıl']:.2f}", delta=f"{analiz['5 Yıl']:.2f}")
+        st.divider()
+        st.subheader("🤖 Yapay Zeka Yorumu")
+        yorum = ""
+        if analiz['1 Yıl'] > 100: yorum += "🚀 **Uzun Vade:** Müthiş ralli (%100+). "
+        elif analiz['1 Yıl'] < -20: yorum += "🔻 **Uzun Vade:** Değer kaybı yüksek. "
+        if analiz['1 Gün'] < -3 and analiz['1 Hafta'] > 5: yorum += "📉 **Kısa Vade:** Kâr satışı baskısı. "
+        elif analiz['1 Gün'] > 3: yorum += "🔥 **Kısa Vade:** Alıcılar istekli. "
+        st.info(f"🤖 **Yapay Zeka Yorumu:** {yorum}" if yorum else "🤖 **Yapay Zeka Yorumu:** Hisse standart seyrediyor.")
         st.divider()
         col_al, col_sat = st.columns(2)
         with col_al:
@@ -326,75 +352,39 @@ else:
             if not arz.empty: st.dataframe(arz, use_container_width=True)
             else: st.info("Yok.")
 
-    # 🔥🔥🔥 YENİLENEN YAPAY ZEKA PORTFÖY ANALİZİ 🔥🔥🔥
     elif secim == "🧠 Portföy Analizi":
-        st.header("🧠 Yapay Zeka Portföy Analizi")
-        st.caption("Portföyünüzün röntgenini çekiyoruz...")
-        
+        st.header("🧠 Analiz")
         if not df.empty:
-            if st.button("Analizi Başlat", use_container_width=True, type="primary"):
-                with st.spinner("Yapay zeka verilerinizi inceliyor..."):
-                    anlik, _ = portfoy_hesapla(df.copy())
-                    
-                    # Veri Hazırlığı
-                    ozet = []
-                    toplam_deger = 0
-                    halka_arz_sayisi = 0
-                    toplam_islem_sayisi = len(df)
-                    
-                    if 'Halka Arz' in df.columns:
-                        halka_arz_sayisi = len(df[df['Halka Arz'].astype(str).str.upper() == 'TRUE'])
-                    
-                    for k, v in anlik.items():
-                        if v['Adet'] > 0:
-                            # Fiyatı çek, çekemezsen maliyeti kullan
-                            f, _, _, _ = veri_getir_ozel(k)
-                            guncel = f if f else v['Ort_Maliyet']
-                            
-                            tutar = v['Adet'] * guncel
-                            toplam_deger += tutar
-                            ozet.append({"Hisse": k, "Değer": tutar})
-                    
-                    # --- ANALİZ MOTORU ---
-                    st.divider()
-                    col_chart, col_report = st.columns([1, 1])
-                    
-                    with col_chart:
-                        st.subheader("📊 Dağılım")
-                        if ozet:
-                            df_chart = pd.DataFrame(ozet)
-                            st.bar_chart(df_chart, x="Hisse", y="Değer")
-                        else:
-                            st.warning("Grafik çizecek veri yok.")
-
-                    with col_report:
-                        st.subheader("🤖 Zeka Raporu")
-                        uyarilar = []
-                        
-                        # 1. Çeşitlilik Kontrolü
-                        if ozet:
-                            en_buyuk = max(ozet, key=lambda x:x['Değer'])
-                            oran = (en_buyuk['Değer'] / toplam_deger) * 100
-                            if oran > 50:
-                                uyarilar.append(f"⚠️ **Yüksek Risk:** Portföyünün **%{int(oran)}** kadarı tek bir hissede ({en_buyuk['Hisse']}). 'Yumurta sepeti' kuralını ihlal ediyorsun.")
-                            elif oran < 20 and len(ozet) > 4:
-                                st.success("✅ **Mükemmel Dağılım:** Portföyün dengeli, riski güzel dağıtmışsın.")
-                        
-                        # 2. Halka Arz Bağımlılığı
-                        if toplam_islem_sayisi > 0:
-                            arz_orani = (halka_arz_sayisi / toplam_islem_sayisi) * 100
-                            if arz_orani > 60:
-                                uyarilar.append(f"⚠️ **Halka Arz Bağımlılığı:** İşlemlerinin **%{int(arz_orani)}** kadarı Halka Arz. Sadece kısa vadeli fırsatlara odaklanıyorsun, uzun vadeli şirketleri de incele.")
-                        
-                        # 3. Genel Yorum
-                        if not uyarilar:
-                            st.info("💡 Portföyünde bariz bir risk görülmüyor. Stratejine sadık kal.")
-                        else:
-                            for u in uyarilar:
-                                st.markdown(u)
-                                
-        else:
-            st.warning("Analiz yapmak için önce hisse almalısınız.")
+            anlik, _ = portfoy_hesapla(df.copy())
+            ozet = []
+            toplam_deger = 0
+            halka_arz_sayisi = 0
+            if 'Halka Arz' in df.columns: halka_arz_sayisi = len(df[df['Halka Arz'].astype(str).str.upper() == 'TRUE'])
+            for k, v in anlik.items():
+                if v['Adet'] > 0:
+                    f, _, _, _ = veri_getir_ozel(k)
+                    guncel = f if f else v['Ort_Maliyet']
+                    tutar = v['Adet'] * guncel
+                    toplam_deger += tutar
+                    ozet.append({"Hisse": k, "Değer": tutar})
+            st.divider()
+            c1, c2 = st.columns(2)
+            with c1:
+                st.subheader("Dağılım")
+                if ozet: st.bar_chart(pd.DataFrame(ozet), x="Hisse", y="Değer")
+                else: st.warning("Veri yok")
+            with c2:
+                st.subheader("Rapor")
+                uyarilar = []
+                if ozet:
+                    en_buyuk = max(ozet, key=lambda x:x['Değer'])
+                    oran = (en_buyuk['Değer'] / toplam_deger) * 100
+                    if oran > 50: uyarilar.append(f"⚠️ Yüksek Risk: Portföyün %{int(oran)}'i {en_buyuk['Hisse']}.")
+                if len(df) > 0 and (halka_arz_sayisi / len(df)) * 100 > 60: uyarilar.append("⚠️ Halka Arz bağımlılığı yüksek.")
+                if not uyarilar: st.info("Risk dengeli.")
+                else:
+                    for u in uyarilar: st.write(u)
+        else: st.warning("Veri yok.")
 
     elif secim == "➕ İşlem Ekle":
         st.header("İşlem Ekle")
