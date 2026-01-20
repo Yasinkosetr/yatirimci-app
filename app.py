@@ -3,10 +3,11 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
-import yfinance as yf  # <--- YENİ KÜTÜPHANE
+import yfinance as yf
+import time
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="Yatırımcı Pro Canlı", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Yatırımcı Pro Max", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. TASARIM (CSS) ---
 st.markdown(
@@ -16,8 +17,7 @@ st.markdown(
     [data-testid="stSidebar"] {background-color: #1c1c1e; border-right: 1px solid #333;}
     html, body, [class*="css"] {font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #E0E0E0;}
     .stButton>button {background-image: linear-gradient(19deg, #F4D03F 0%, #16A085 100%); color: white; border: none; border-radius: 10px;}
-    /* Metrik kutularını güzelleştirme */
-    [data-testid="stMetricValue"] {font-size: 2rem !important; color: #00ff00;}
+    [data-testid="stMetricValue"] {font-size: 1.8rem !important; color: #00ff00;}
     </style>
     """, unsafe_allow_html=True
 )
@@ -26,12 +26,10 @@ st.markdown(
 def get_data():
     try:
         if "gcp_service_account" not in st.secrets:
-            st.error("Secrets ayarı (JSON) bulunamadı.")
+            st.error("Secrets ayarı bulunamadı.")
             st.stop()
-            
         creds_dict = st.secrets["gcp_service_account"]
         scope = ['https://www.googleapis.com/auth/spreadsheets']
-        
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         
@@ -44,10 +42,8 @@ def get_data():
         sheet = client.open_by_url(sheet_url).sheet1
         data = sheet.get_all_records()
         return sheet, data
-
     except Exception as e:
-        st.error(f"Bağlantı Hatası: {e}")
-        st.info("İPUCU: Robot mailini dosyaya 'Editör' olarak ekledin mi?")
+        st.error(f"Veri tabanı hatası: {e}")
         st.stop()
 
 sheet, data = get_data()
@@ -78,9 +74,9 @@ if not st.session_state.giris_yapildi:
     giris_ekrani()
     st.stop()
 
-# --- 5. YAN MENÜ ---
+# --- MENÜ ---
 with st.sidebar:
-    st.title("Yatırımcı v4.0 (Canlı)")
+    st.title("Yatırımcı v4.5")
     secim = st.radio("Menü", ["📊 Canlı Portföy", "🚀 Halka Arzlar", "🧠 Portföy Analizi", "➕ İşlem Ekle", "📝 İşlem Geçmişi"])
     col1, col2 = st.columns(2)
     with col1:
@@ -93,23 +89,33 @@ with st.sidebar:
             st.query_params.clear()
             st.rerun()
 
-# --- FONKSİYON: CANLI FİYAT ÇEKME ---
-def fiyat_getir(hisse_kodu):
+# --- ÖZEL VERİ ÇEKME FONKSİYONU (HATAYI ÇÖZEN KISIM) ---
+@st.cache_data(ttl=60)
+def veri_getir_ozel(hisse_kodu):
+    # 1. Temizlik
+    sembol = str(hisse_kodu).strip().upper()
+    
+    # 2. .IS Ekleme
+    if not sembol.endswith(".IS"):
+        arama_sembolu = f"{sembol}.IS"
+    else:
+        arama_sembolu = sembol
+        
     try:
-        # BIST hisseleri için sonuna .IS ekliyoruz (Örn: THYAO -> THYAO.IS)
-        if not hisse_kodu.endswith(".IS"):
-            sembol = f"{hisse_kodu}.IS"
+        ticker = yf.Ticker(arama_sembolu)
+        # Günlük geçmişten al
+        hist = ticker.history(period="1d")
+        
+        if not hist.empty:
+            fiyat = hist['Close'].iloc[-1]
+            isim = ticker.info.get('longName', sembol)
+            return fiyat, isim
         else:
-            sembol = hisse_kodu
-            
-        ticker = yf.Ticker(sembol)
-        # Hızlı veri çekme yöntemi
-        fiyat = ticker.fast_info['last_price']
-        return float(fiyat)
-    except:
-        return 0.0
+            return None, sembol
+    except Exception:
+        return None, sembol
 
-# --- 6. SAYFALAR ---
+# --- SAYFALAR ---
 
 # SAYFA: CANLI PORTFÖY
 if secim == "📊 Canlı Portföy":
@@ -120,46 +126,56 @@ if secim == "📊 Canlı Portföy":
         genel_toplam_deger = 0
         genel_toplam_maliyet = 0
         
-        # Yükleniyor animasyonu
-        with st.spinner('Canlı borsa verileri çekiliyor...'):
-            for sembol in df['Hisse Adı'].unique():
-                temp_df = df[df['Hisse Adı'] == sembol]
-                temp_df['Lot'] = pd.to_numeric(temp_df['Lot'], errors='coerce').fillna(0)
-                temp_df['Fiyat'] = pd.to_numeric(temp_df['Fiyat'], errors='coerce').fillna(0)
-                
-                alis = temp_df[temp_df['İşlem'] == 'Alış']
-                satis = temp_df[temp_df['İşlem'] == 'Satış']
-                
-                net_lot = alis['Lot'].sum() - satis['Lot'].sum()
-                
-                if net_lot > 0:
-                    # Maliyet Hesabı
-                    toplam_maliyet = (alis['Lot'] * alis['Fiyat']).sum()
-                    ort_maliyet = toplam_maliyet / alis['Lot'].sum() if alis['Lot'].sum() > 0 else 0
-                    
-                    # CANLI FİYAT ÇEKİLİYOR
-                    guncel_fiyat = fiyat_getir(sembol)
-                    if guncel_fiyat == 0: guncel_fiyat = ort_maliyet # Veri çekemezse maliyeti göster
-                    
-                    guncel_tutar = net_lot * guncel_fiyat
-                    maliyet_tutari = net_lot * ort_maliyet
-                    kar_zarar = guncel_tutar - maliyet_tutari
-                    kar_yuzde = (kar_zarar / maliyet_tutari) * 100 if maliyet_tutari > 0 else 0
-                    
-                    genel_toplam_deger += guncel_tutar
-                    genel_toplam_maliyet += maliyet_tutari
-                    
-                    ozet_listesi.append({
-                        "Hisse": sembol,
-                        "Adet": net_lot,
-                        "Ort. Maliyet": round(ort_maliyet, 2),
-                        "Anlık Fiyat": round(guncel_fiyat, 2),
-                        "Toplam Değer": round(guncel_tutar, 2),
-                        "Kâr/Zarar (TL)": round(kar_zarar, 2),
-                        "Kâr/Zarar (%)": f"%{round(kar_yuzde, 2)}"
-                    })
+        # İlerleme Çubuğu
+        my_bar = st.progress(0, text="Veriler güncelleniyor...")
+        toplam_hisse_sayisi = len(df['Hisse Adı'].unique())
+        sayac = 0
         
-        # EN ÜSTTE BÜYÜK BİLGİ KUTULARI (METRİKLER)
+        for sembol in df['Hisse Adı'].unique():
+            sayac += 1
+            my_bar.progress(int((sayac / toplam_hisse_sayisi) * 100), text=f"{sembol} verisi çekiliyor...")
+            
+            temp_df = df[df['Hisse Adı'] == sembol]
+            temp_df['Lot'] = pd.to_numeric(temp_df['Lot'], errors='coerce').fillna(0)
+            temp_df['Fiyat'] = pd.to_numeric(temp_df['Fiyat'], errors='coerce').fillna(0)
+            
+            alis = temp_df[temp_df['İşlem'] == 'Alış']
+            satis = temp_df[temp_df['İşlem'] == 'Satış']
+            net_lot = alis['Lot'].sum() - satis['Lot'].sum()
+            
+            if net_lot > 0:
+                toplam_maliyet = (alis['Lot'] * alis['Fiyat']).sum()
+                ort_maliyet = toplam_maliyet / alis['Lot'].sum() if alis['Lot'].sum() > 0 else 0
+                
+                # CANLI VERİ KULLANILIYOR
+                guncel_fiyat, sirket_adi = veri_getir_ozel(sembol)
+                
+                veri_durumu = "✅ Canlı"
+                if guncel_fiyat is None:
+                    guncel_fiyat = ort_maliyet
+                    veri_durumu = "⚠️ Veri Yok"
+                
+                guncel_tutar = net_lot * guncel_fiyat
+                maliyet_tutari = net_lot * ort_maliyet
+                kar_zarar = guncel_tutar - maliyet_tutari
+                kar_yuzde = (kar_zarar / maliyet_tutari) * 100 if maliyet_tutari > 0 else 0
+                
+                genel_toplam_deger += guncel_tutar
+                genel_toplam_maliyet += maliyet_tutari
+                
+                ozet_listesi.append({
+                    "Kod": sembol,
+                    "Şirket": sirket_adi if sirket_adi else sembol,
+                    "Adet": net_lot,
+                    "Ort. Maliyet": round(ort_maliyet, 2),
+                    "Anlık Fiyat": round(guncel_fiyat, 2),
+                    "Toplam Değer": round(guncel_tutar, 2),
+                    "Kâr/Zarar": round(kar_zarar, 2),
+                    "Durum": veri_durumu
+                })
+        
+        my_bar.empty()
+
         col_m1, col_m2, col_m3 = st.columns(3)
         genel_kar = genel_toplam_deger - genel_toplam_maliyet
         genel_yuzde = (genel_kar / genel_toplam_maliyet * 100) if genel_toplam_maliyet > 0 else 0
@@ -167,81 +183,17 @@ if secim == "📊 Canlı Portföy":
         col_m1.metric("Toplam Portföy", f"{genel_toplam_deger:,.2f} ₺")
         col_m2.metric("Toplam Maliyet", f"{genel_toplam_maliyet:,.2f} ₺")
         col_m3.metric("Net Kâr/Zarar", f"{genel_kar:,.2f} ₺", f"%{genel_yuzde:.2f}")
-
-        st.divider()
         
+        st.divider()
         if ozet_listesi:
-            # Tabloyu göster (Renklendirme yapılabilir ama şimdilik sade olsun)
             st.dataframe(pd.DataFrame(ozet_listesi), use_container_width=True)
         else:
-            st.info("Aktif hisseniz yok.")
-            
+            st.info("Portföy boş.")
     else:
-        st.warning("Veritabanı boş.")
+        st.warning("Veri yok.")
 
 # SAYFA: HALKA ARZLAR
 elif secim == "🚀 Halka Arzlar":
     st.header("🚀 Halka Arzlar")
     if not df.empty and 'Halka Arz' in df.columns:
-        try:
-            arz_df = df[df['Halka Arz'].astype(str).str.upper() == 'TRUE']
-            if not arz_df.empty: st.dataframe(arz_df, use_container_width=True)
-            else: st.info("Kayıt yok.")
-        except: st.error("Hata oluştu.")
-    else: st.info("Veri yok.")
-
-# --- SAYFA: İŞLEM EKLE (OTOMATİK FİYATLI) ---
-elif secim == "➕ İşlem Ekle":
-    st.header("Yeni Yatırım Ekle")
-    
-    # Session state (hafıza) temizliği - Sayfa değişince fiyatı unutmasın diye
-    if 'otomatik_fiyat' not in st.session_state:
-        st.session_state.otomatik_fiyat = 0.0
-
-    col1, col2 = st.columns(2)
-    with col1:
-        hisse = st.text_input("Hisse Kodu (Örn: ASELS)").upper()
-        
-        # SİHİRLİ BUTON BURADA 👇
-        if st.button("⚡ Anlık Fiyatı Getir"):
-            if hisse:
-                with st.spinner("Fiyat çekiliyor..."):
-                    gelen_fiyat, gelen_isim = veri_getir_ozel(hisse)
-                    if gelen_fiyat:
-                        st.session_state.otomatik_fiyat = float(gelen_fiyat)
-                        st.success(f"✅ {gelen_isim}: {gelen_fiyat} TL")
-                    else:
-                        st.error("Fiyat bulunamadı, kodu kontrol et.")
-            else:
-                st.warning("Önce hisse kodu yazmalısın.")
-
-        islem = st.selectbox("İşlem", ["Alış", "Satış"])
-        tarih = st.date_input("Tarih", datetime.now()).strftime("%Y-%m-%d")
-
-    with col2:
-        lot = st.number_input("Lot", min_value=1)
-        
-        # Fiyat kutusu artık otomatik dolabiliyor
-        # value=st.session_state.otomatik_fiyat kısmı bu işi yapıyor
-        fiyat = st.number_input("Fiyat", min_value=0.0, format="%.2f", value=st.session_state.otomatik_fiyat)
-        
-        halka_arz = st.checkbox("Halka Arz")
-
-    # Kaydet Butonu
-    if st.button("Kaydet", use_container_width=True):
-        if hisse and fiyat > 0:
-            try:
-                temiz_hisse = hisse.strip().upper()
-                yeni_veri = [str(tarih), temiz_hisse, islem, lot, fiyat, str(halka_arz).upper()]
-                sheet.append_row(yeni_veri)
-                st.success(f"✅ {temiz_hisse} ({lot} Adet) başarıyla kaydedildi!")
-                # Kayıttan sonra hafızadaki fiyatı sıfırla
-                st.session_state.otomatik_fiyat = 0.0
-            except Exception as e: st.error(f"Hata: {e}")
-        else:
-            st.warning("Lütfen hisse kodu ve fiyat giriniz.")
-
-# SAYFA: GEÇMİŞ
-elif secim == "📝 İşlem Geçmişi":
-    st.header("📝 Tüm Kayıtlar")
-    if not df.empty: st.dataframe(df, use_container_width=True)
+        arz_df = df[df['Halka Arz'].astype(str).str.upper() ==
