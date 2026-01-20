@@ -8,7 +8,7 @@ import time
 import hashlib
 
 # --- 1. AYARLAR ---
-st.set_page_config(page_title="Yatırımcı Pro V9.2", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Yatırımcı Pro V9.3", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. TASARIM ---
 st.markdown(
@@ -20,7 +20,8 @@ st.markdown(
     .stButton>button {background-image: linear-gradient(19deg, #F4D03F 0%, #16A085 100%); color: white; border: none; border-radius: 10px; width: 100%;}
     [data-testid="stMetricValue"] {font-size: 1.4rem !important;}
     div[data-testid="stMetric"] {background-color: rgba(255,255,255,0.05); padding: 10px; border-radius: 10px; text-align: center; border: 1px solid rgba(255,255,255,0.1);}
-    /* Alış Satış Butonları İçin Özel Renkler */
+    
+    /* Özel Buton Renkleri */
     .stButton button[kind="primary"] {background-image: linear-gradient(to right, #11998e, #38ef7d) !important; color: white !important;}
     .stButton button[kind="secondary"] {background-image: linear-gradient(to right, #cb2d3e, #ef473a) !important; color: white !important;}
     </style>
@@ -99,7 +100,8 @@ def portfoy_hesapla(df):
             mevcut['Ort_Maliyet'] = ((mevcut['Adet'] * mevcut['Ort_Maliyet']) + (a * f)) / toplam_adet if toplam_adet > 0 else 0
             mevcut['Adet'] = toplam_adet
         elif i == "Satış":
-            gerceklesen += (f - mevcut['Ort_Maliyet']) * a
+            satis_kari = (f - mevcut['Ort_Maliyet']) * a
+            gerceklesen += satis_kari
             mevcut['Adet'] = max(0, mevcut['Adet'] - a)
     return portfoy, gerceklesen
 
@@ -170,12 +172,9 @@ with st.sidebar:
         st.session_state.secilen_hisse_detay = None
         st.rerun()
 
-# =========================================================
-# 🔥 HİSSE DETAY SAYFASI (AL/SAT EKLENDİ) 🔥
-# =========================================================
+# --- HİSSE DETAY ---
 def hisse_detay_goster(sembol):
     st.button("⬅️ Geri Dön", on_click=lambda: st.session_state.update(secilen_hisse_detay=None))
-    
     with st.spinner(f"{sembol} analiz ediliyor..."):
         fiyat, isim, tam_kod, degisim = veri_getir_ozel(sembol)
         analiz = hisse_performans_analizi(tam_kod)
@@ -184,7 +183,6 @@ def hisse_detay_goster(sembol):
         st.header(f"📈 {isim} ({tam_kod})")
         st.metric("Anlık Fiyat", f"{analiz['Fiyat']:.2f} ₺", delta=f"%{degisim:.2f}")
         
-        # PERFORMANS METRİKLERİ
         st.divider()
         st.subheader("📊 Performans Karnesi")
         c1, c2, c3, c4, c5 = st.columns(5)
@@ -194,53 +192,32 @@ def hisse_detay_goster(sembol):
         c4.metric("1 Yıl", f"%{analiz['1 Yıl']:.2f}", delta=f"{analiz['1 Yıl']:.2f}")
         c5.metric("5 Yıl", f"%{analiz['5 Yıl']:.2f}", delta=f"{analiz['5 Yıl']:.2f}")
         
-        # YAPAY ZEKA YORUMU
         st.divider()
-        yorum = ""
-        if analiz['1 Yıl'] > 100: yorum += "🚀 **Uzun Vade:** Müthiş ralli (%100+). "
-        elif analiz['1 Yıl'] < -20: yorum += "🔻 **Uzun Vade:** Değer kaybı yüksek. "
-        if analiz['1 Gün'] < -3 and analiz['1 Hafta'] > 5: yorum += "📉 **Kısa Vade:** Kâr satışı baskısı. "
-        elif analiz['1 Gün'] > 3: yorum += "🔥 **Kısa Vade:** Alıcılar istekli. "
-        st.info(f"🤖 **Yapay Zeka Yorumu:** {yorum}" if yorum else "🤖 **Yapay Zeka Yorumu:** Hisse standart seyrediyor.")
-        
-        # 🔥🔥🔥 YENİ EKLENEN KISIM: PRATİK AL/SAT PANELİ 🔥🔥🔥
-        st.divider()
-        st.subheader(f"⚡ {tam_kod} İçin Hızlı İşlem")
-        
+        # HIZLI AL/SAT (DETAY SAYFASI İÇİN)
         col_al, col_sat = st.columns(2)
-        
-        # 🟢 ALIŞ BÖLÜMÜ
         with col_al:
-            st.success("🟢 Alış Yap")
-            al_lot = st.number_input("Alınacak Lot", min_value=1, key="al_lot")
-            al_fiyat = st.number_input("Alış Fiyatı", value=float(analiz['Fiyat']), format="%.2f", key="al_fiyat")
-            if st.button("AL (Portföye Ekle)", key="btn_al", type="primary"): # Primary = Yeşil tonlu
+            al_lot = st.number_input("Alınacak Lot", min_value=1, key="detay_al_lot")
+            if st.button("AL (Ekle)", key="detay_btn_al", type="primary"):
                 try:
                     tarih = datetime.now().strftime("%Y-%m-%d")
-                    fiyat_str = str(al_fiyat).replace(',', '.')
+                    fiyat_str = str(analiz['Fiyat']).replace(',', '.')
                     ws_islemler.append_row([st.session_state.kullanici_adi, tarih, tam_kod, "Alış", al_lot, fiyat_str, "FALSE"])
-                    st.success(f"✅ {al_lot} adet {tam_kod} alındı!")
+                    st.success("Alındı!")
                     time.sleep(1)
                     st.rerun()
                 except Exception as e: st.error(f"Hata: {e}")
-        
-        # 🔴 SATIŞ BÖLÜMÜ
         with col_sat:
-            st.error("🔴 Satış Yap")
-            sat_lot = st.number_input("Satılacak Lot", min_value=1, key="sat_lot")
-            sat_fiyat = st.number_input("Satış Fiyatı", value=float(analiz['Fiyat']), format="%.2f", key="sat_fiyat")
-            # Secondary buton stilini CSS ile kırmızıya çektik
-            if st.button("SAT (Portföyden Düş)", key="btn_sat", type="secondary"): 
+            sat_lot = st.number_input("Satılacak Lot", min_value=1, key="detay_sat_lot")
+            if st.button("SAT (Düş)", key="detay_btn_sat", type="secondary"):
                 try:
                     tarih = datetime.now().strftime("%Y-%m-%d")
-                    fiyat_str = str(sat_fiyat).replace(',', '.')
+                    fiyat_str = str(analiz['Fiyat']).replace(',', '.')
                     ws_islemler.append_row([st.session_state.kullanici_adi, tarih, tam_kod, "Satış", sat_lot, fiyat_str, "FALSE"])
-                    st.success(f"🔻 {sat_lot} adet {tam_kod} satıldı!")
+                    st.success("Satıldı!")
                     time.sleep(1)
                     st.rerun()
                 except Exception as e: st.error(f"Hata: {e}")
-
-    else: st.error("Veri alınamadı.")
+    else: st.error("Veri yok.")
 
 # --- SAYFALAR ---
 if st.session_state.secilen_hisse_detay:
@@ -269,11 +246,55 @@ else:
                     c4.metric("K/Z", f"{kar:,.0f} ₺", delta=f"{kar:,.0f}")
                     eldekilerin_degeri += tutar
                     eldekilerin_maliyeti += (v['Adet'] * v['Ort_Maliyet'])
+                
                 st.divider()
                 genel_net = gerceklesen + (eldekilerin_degeri - eldekilerin_maliyeti)
                 c1, c2 = st.columns(2)
-                c1.metric("Toplam Portföy", f"{eldekilerin_degeri:,.2f} ₺")
+                c1.metric("Portföy Değeri", f"{eldekilerin_degeri:,.2f} ₺")
                 c2.metric("GENEL NET DURUM", f"{genel_net:,.2f} ₺", delta=f"{genel_net:,.2f}")
+
+                # 🔥🔥🔥 YENİ EKLENEN KISIM: CANLI PORTFÖYDE HIZLI AL/SAT PANELİ 🔥🔥🔥
+                st.divider()
+                with st.expander("⚡ Hızlı Al/Sat Paneli (Portföy İçi)", expanded=True):
+                    st.caption("Buradan mevcut hisseleriniz üzerinde ekleme (Alış) veya azaltma (Satış) yapabilirsiniz. Kâr/Zarar otomatik hesaplanır.")
+                    
+                    # 1. Hisse Seç (Sadece eldekiler)
+                    secilen_hisse = st.selectbox("İşlem Yapılacak Hisse", aktifler, key="hzl_select")
+                    
+                    # Seçilen hissenin güncel fiyatını bulalım
+                    hzl_fiyat, _, hzl_kod, _ = veri_getir_ozel(secilen_hisse)
+                    if not hzl_fiyat: hzl_fiyat = 0.0
+                    
+                    col_hzl1, col_hzl2 = st.columns(2)
+                    
+                    # ORTAK GİRDİLER
+                    hzl_lot = st.number_input("İşlem Adedi (Lot)", min_value=1, key="hzl_lot")
+                    hzl_islem_fiyati = st.number_input("İşlem Fiyatı", value=float(hzl_fiyat), format="%.2f", key="hzl_fiyat_inp")
+                    
+                    col_b1, col_b2 = st.columns(2)
+                    
+                    with col_b1:
+                        if st.button("🟢 EKLE (ALIŞ)", key="hzl_btn_al", type="primary", use_container_width=True):
+                            try:
+                                tarih = datetime.now().strftime("%Y-%m-%d")
+                                f_str = str(hzl_islem_fiyati).replace(',', '.')
+                                ws_islemler.append_row([st.session_state.kullanici_adi, tarih, hzl_kod, "Alış", hzl_lot, f_str, "FALSE"])
+                                st.success("Portföye Eklendi!")
+                                time.sleep(1)
+                                st.rerun()
+                            except Exception as e: st.error(f"Hata: {e}")
+                            
+                    with col_b2:
+                        if st.button("🔴 BOZ (SATIŞ)", key="hzl_btn_sat", type="secondary", use_container_width=True):
+                            try:
+                                tarih = datetime.now().strftime("%Y-%m-%d")
+                                f_str = str(hzl_islem_fiyati).replace(',', '.')
+                                ws_islemler.append_row([st.session_state.kullanici_adi, tarih, hzl_kod, "Satış", hzl_lot, f_str, "FALSE"])
+                                st.success("Satış Yapıldı!")
+                                time.sleep(1)
+                                st.rerun()
+                            except Exception as e: st.error(f"Hata: {e}")
+
             else: st.info("Portföy boş.")
         else: st.warning("Veri yok.")
 
