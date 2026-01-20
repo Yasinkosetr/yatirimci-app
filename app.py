@@ -190,36 +190,56 @@ elif secim == "🚀 Halka Arzlar":
         except: st.error("Hata oluştu.")
     else: st.info("Veri yok.")
 
-# SAYFA: ANALİZ
-elif secim == "🧠 Portföy Analizi":
-    st.header("🧠 Yapay Zeka Risk Analizi")
-    if st.button("Analizi Başlat", use_container_width=True):
-        st.info("Canlı fiyatlar üzerinden analiz yapılıyor...")
-        # (Burada kod sadeliği için eski mantıkla maliyet üzerinden gidiyoruz, 
-        # istenirse canlı fiyata çevrilebilir ama mantık değişmez)
-        st.success("Risk raporu hazırlanıyor... (Gelişmiş analiz yakında)")
-        # Buraya önceki analiz kodlarını ekleyebilirsin, yer kaplamasın diye kısalttım.
-
-# SAYFA: İŞLEM EKLE
+# --- SAYFA: İŞLEM EKLE (OTOMATİK FİYATLI) ---
 elif secim == "➕ İşlem Ekle":
     st.header("Yeni Yatırım Ekle")
+    
+    # Session state (hafıza) temizliği - Sayfa değişince fiyatı unutmasın diye
+    if 'otomatik_fiyat' not in st.session_state:
+        st.session_state.otomatik_fiyat = 0.0
+
     col1, col2 = st.columns(2)
     with col1:
-        hisse = st.text_input("Hisse Kodu (Örn: THYAO)").upper()
+        hisse = st.text_input("Hisse Kodu (Örn: ASELS)").upper()
+        
+        # SİHİRLİ BUTON BURADA 👇
+        if st.button("⚡ Anlık Fiyatı Getir"):
+            if hisse:
+                with st.spinner("Fiyat çekiliyor..."):
+                    gelen_fiyat, gelen_isim = veri_getir_ozel(hisse)
+                    if gelen_fiyat:
+                        st.session_state.otomatik_fiyat = float(gelen_fiyat)
+                        st.success(f"✅ {gelen_isim}: {gelen_fiyat} TL")
+                    else:
+                        st.error("Fiyat bulunamadı, kodu kontrol et.")
+            else:
+                st.warning("Önce hisse kodu yazmalısın.")
+
         islem = st.selectbox("İşlem", ["Alış", "Satış"])
         tarih = st.date_input("Tarih", datetime.now()).strftime("%Y-%m-%d")
+
     with col2:
         lot = st.number_input("Lot", min_value=1)
-        fiyat = st.number_input("Fiyat", min_value=0.0, format="%.2f")
+        
+        # Fiyat kutusu artık otomatik dolabiliyor
+        # value=st.session_state.otomatik_fiyat kısmı bu işi yapıyor
+        fiyat = st.number_input("Fiyat", min_value=0.0, format="%.2f", value=st.session_state.otomatik_fiyat)
+        
         halka_arz = st.checkbox("Halka Arz")
 
+    # Kaydet Butonu
     if st.button("Kaydet", use_container_width=True):
-        if hisse:
+        if hisse and fiyat > 0:
             try:
-                yeni_veri = [str(tarih), hisse, islem, lot, fiyat, str(halka_arz).upper()]
+                temiz_hisse = hisse.strip().upper()
+                yeni_veri = [str(tarih), temiz_hisse, islem, lot, fiyat, str(halka_arz).upper()]
                 sheet.append_row(yeni_veri)
-                st.success("✅ Kaydedildi!")
+                st.success(f"✅ {temiz_hisse} ({lot} Adet) başarıyla kaydedildi!")
+                # Kayıttan sonra hafızadaki fiyatı sıfırla
+                st.session_state.otomatik_fiyat = 0.0
             except Exception as e: st.error(f"Hata: {e}")
+        else:
+            st.warning("Lütfen hisse kodu ve fiyat giriniz.")
 
 # SAYFA: GEÇMİŞ
 elif secim == "📝 İşlem Geçmişi":
